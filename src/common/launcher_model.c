@@ -111,6 +111,7 @@ void launcher_model_init(LauncherModel* m,
         m->has_screen_kind      = game->has_screen_kind != 0;
         m->has_frame_interp     = game->has_frame_interp != 0;
         m->has_spu_hq           = game->has_spu_hq != 0;
+        m->has_audio_buffer_ms  = game->has_audio_buffer_ms != 0;
         m->has_skip_fmv         = game->has_skip_fmv != 0;
         m->has_turbo_loads      = game->has_turbo_loads != 0;
         // game->has_fullscreen_toggle is deliberately NOT read: the Fullscreen
@@ -774,6 +775,10 @@ const char* launcher_model_interp_fps_label(const LauncherModel* m) {
 
 void launcher_model_toggle_spu_hq(LauncherModel* m) {
     m->s.spu_hq = !m->s.spu_hq;
+}
+
+void launcher_model_set_audio_buffer(LauncherModel* m, int buffer_ms) {
+    m->s.audio_buffer_ms = buffer_ms;
 }
 
 void launcher_model_toggle_skip_fmv(LauncherModel* m) {

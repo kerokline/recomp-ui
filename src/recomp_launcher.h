@@ -390,6 +390,12 @@ struct RecompLauncherCSettings {
     // Multiplier applied by the host to a controller's angular-rate sensor.
     // 0 means unset and is seeded to 1.0 by the launcher model.
     float gyro_sensitivity;    // 0.25..4.00, 1.00 = game default
+
+    // ---- opt-in host audio cushion -----------------------------------------
+    // Raw steady-state playback buffer target in milliseconds. Only games that
+    // set GameInfo.has_audio_buffer_ms expose this debug field in the launcher.
+    // Appended for ABI stability.
+    int audio_buffer_ms;
 };
 
 // ---- host verification/inspection results (filled by the callbacks below) ----
@@ -624,6 +630,9 @@ typedef struct RecompLauncherCGameInfo {
      * sensitivity slider. The launcher only edits Settings.gyro_sensitivity;
      * discovery, sensor selection, and axis mapping remain host-owned. */
     int has_gyro_controls;
+
+    /* Opt-in raw Audio latency debug control. */
+    int has_audio_buffer_ms;
 } RecompLauncherCGameInfo;
 
 // Returns: 0 = LAUNCH (boot out_rom_path with the edited *io),

@@ -1879,6 +1879,7 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
     // and the SPU toggle all share the same left edge (aligned grid).
     float cw = ImGui::CalcTextSize("Sample rate").x;
     if (m->has_spu_hq) { float t = ImGui::CalcTextSize("High-quality SPU").x; if (t > cw) cw = t; }
+    if (m->has_audio_buffer_ms) { float t = ImGui::CalcTextSize("Audio latency").x; if (t > cw) cw = t; }
     cw += px(18.0f);
     // Sample rate: hidden for consoles whose runtime has no audio-frequency
     // setting (SystemProfile.hide_audio_freq — NES has Volume only).
@@ -1915,6 +1916,32 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
         row_label("High-quality SPU", th, cw);
         bool hq = m->s.spu_hq != 0;
         if (ImGui::Checkbox("##spuhq", &hq)) launcher_model_toggle_spu_hq(m);
+    }
+
+    if (m->has_audio_buffer_ms) {
+        row_label("Audio latency", th, cw);
+        int buffer_ms = m->s.audio_buffer_ms;
+        ImGui::SetNextItemWidth(px(82));
+        const bool submitted = ImGui::InputInt(
+            "##audio_latency_ms", &buffer_ms, 0, 0,
+            ImGuiInputTextFlags_EnterReturnsTrue |
+            ImGuiInputTextFlags_CharsDecimal);
+        if (submitted || ImGui::IsItemDeactivatedAfterEdit())
+            launcher_model_set_audio_buffer(m, buffer_ms);
+        ImGui::SameLine(0, px(6));
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("ms");
+        ImGui::SameLine(0, px(7));
+        ImGui::TextColored(col(th.accent), "(?)");
+        if (ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            ImGui::PushTextWrapPos(px(360));
+            ImGui::TextUnformatted(
+                "Raw audio-bridge buffer target in milliseconds. Lower values "
+                "make sound respond sooner and may cause crackling or dropouts.");
+            ImGui::PopTextWrapPos();
+            ImGui::EndTooltip();
+        }
     }
 
     // NOTE: analog deadzone is NOT here — it belongs to the input device, so it
@@ -1969,7 +1996,8 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
 // panel_video_draw, decided from the same "deep" predicate draw_settings used
 // to compute inline.
 void panel_audio_draw(LauncherModel* m, const LauncherTheme* th) {
-    const bool deep_audio = m->has_spu_hq || m->num_languages > 0 || m->num_audio_devices > 0;   /* deadzone moved to controller card */
+    const bool deep_audio = m->has_spu_hq || m->has_audio_buffer_ms ||
+                            m->num_languages > 0 || m->num_audio_devices > 0;
     if (deep_audio) {
         if (begin_panel("audio", 0, false)) draw_audio_controls(m, *th);
         end_panel();
@@ -2108,7 +2136,8 @@ void draw_settings(LauncherModel* m, const LauncherTheme& th) {
                                       // filter/widescreen on the legacy surface)
 
     const bool deep_display = video_card_grows(m);   // superset of any_deep_display: folds in NES + widescreen (N64 covered too)
-    const bool deep_audio   = m->has_spu_hq || m->num_languages > 0 || m->num_audio_devices > 0;   /* deadzone moved to controller card */
+    const bool deep_audio   = m->has_spu_hq || m->has_audio_buffer_ms ||
+                              m->num_languages > 0 || m->num_audio_devices > 0;
 
     const LauncherPanel* video_p   = find_composed(prof->panels_settings, "video", m);
     const LauncherPanel* audio_p   = find_composed(prof->panels_settings, "audio", m);
