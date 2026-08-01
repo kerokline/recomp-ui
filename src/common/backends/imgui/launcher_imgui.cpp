@@ -5185,7 +5185,11 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
     launcher_model_poll_prepare_disc(m);
     ImGui::OpenPopup("First-run setup");
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    /* The wizard grows after its first frame as verification details arrive.
+     * Appearing-only placement can therefore retain the initial center point
+     * as the enlarged window's top-left corner. Re-center the non-movable
+     * modal every frame so its final size remains inside the launcher. */
+    ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(px(520), 0), ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal("First-run setup", nullptr,
                                 ImGuiWindowFlags_AlwaysAutoResize |
