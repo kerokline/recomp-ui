@@ -2150,7 +2150,7 @@ void draw_system_controls(LauncherModel* m, const LauncherTheme& th) {
     if (avail < px(50)) avail = px(50);
     const char* bp = has_pick ? m->s.bios_path
                               : (is_gba ? "Retail GBA BIOS required"
-                                        : "Bundled BIOS");
+                                        : "OpenBIOS (default)");
     char elided[192]; elide_left(bp, avail, elided, sizeof(elided));
     ImGui::AlignTextToFramePadding();
     ImGui::TextColored(col(has_pick ? th.text : th.text_muted), "%s", elided);
@@ -2173,8 +2173,8 @@ void draw_system_controls(LauncherModel* m, const LauncherTheme& th) {
                 ImGui::SetTooltip("Remove this selection. A retail GBA BIOS "
                                   "is required before the game can launch.");
             else
-                ImGui::SetTooltip("Stop using this BIOS and go back to the one "
-                                  "included with this build.");
+                ImGui::SetTooltip("Stop using this retail BIOS and return to "
+                                  "OpenBIOS.");
         }
     }
 }
@@ -5244,7 +5244,7 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
         ImGui::PopTextWrapPos();
         const char* bp = has_pick ? m->s.bios_path
                                   : (is_gba ? "(none selected)"
-                                            : "Bundled BIOS (OpenBIOS)");
+                                            : "OpenBIOS (default)");
         char belided[220];
         elide_left(bp, px(300), belided, sizeof(belided));
         ImGui::AlignTextToFramePadding();
@@ -5267,11 +5267,11 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
         }
         if (has_pick && !is_gba) {
             ImGui::SameLine();
-            if (ImGui::Button("Use bundled##setup", ImVec2(px(120), px(32))))
+            if (ImGui::Button("Use OpenBIOS##setup", ImVec2(px(120), px(32))))
                 launcher_model_set_bios_path(m, "");
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Clear the retail BIOS path and use the "
-                                  "bundled OpenBIOS included with this build.");
+                                  "OpenBIOS included with this build.");
         }
         ImGui::PopStyleVar();
         if (m->setup_bios_detail[0]) {
