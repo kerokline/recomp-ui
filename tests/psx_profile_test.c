@@ -1,5 +1,6 @@
 #include "recomp_launcher.h"
 #include "consoles/psx/psx_profile.h"
+#include "launcher_system.h"
 
 #include <assert.h>
 #include <string.h>
@@ -20,6 +21,15 @@ int main(void) {
     assert(game.has_renderer == 1);
     assert(game.has_supersampling == 1);
     assert(game.has_screen_kind == 1);
+
+    /* Two-player PSX games must expose both native controller ports in the
+       launcher. Individual games may lower num_players to 1, but the PSX
+       profile itself must not cap or hide Player 2. */
+    game.num_players = 2;
+    const SystemProfile* profile = launcher_system_infer(&game);
+    assert(profile != NULL);
+    assert(profile->controller.max_players >= 2);
+    assert(game.lock_device == 0);
 
     return 0;
 }
