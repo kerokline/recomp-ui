@@ -295,6 +295,13 @@ static void open_builtin_file_picker(LauncherModel* m, BuiltinPickerKind kind,
 /* Prefer native (zenity/kdialog on Linux, tinyfiledialogs elsewhere). Fall
  * back to the in-app browser when native is unavailable or returns -1. */
 static bool prefer_builtin_file_picker(void) {
+#if defined(__linux__)
+    if (const char* env = std::getenv("RECOMP_UI_BUILTIN_FILE_PICKER")) {
+        return env[0] != '\0' && std::strcmp(env, "0") != 0 &&
+               std::strcmp(env, "false") != 0 &&
+               std::strcmp(env, "FALSE") != 0;
+    }
+#endif
     return false;
 }
 
