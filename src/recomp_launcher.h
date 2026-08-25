@@ -382,6 +382,10 @@ typedef struct RecompLauncherCModFeature {
      * conditionally presents camera bindings and the Mods detail links there.
      * Appended for ABI stability; zero keeps every existing feature unchanged. */
     int  camera_controls;
+    /* Hidden features are omitted from normal picker lists while disabled.
+     * Providers still expose them so an explicitly-enabled hidden feature can
+     * be shown and turned off again. */
+    int  hidden;
 } RecompLauncherCModFeature;
 
 typedef struct RecompLauncherCModOption {
