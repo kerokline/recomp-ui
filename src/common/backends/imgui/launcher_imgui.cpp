@@ -5920,6 +5920,7 @@ void draw_netplay_room_modal(LauncherModel* m, const LauncherTheme& th) {
             for (int i = 0; i < feature_count; ++i) {
                 RecompLauncherCModFeature f{};
                 if (!mods->feature_get(mods->ctx, i, &f)) continue;
+                if (f.hidden && !f.enabled) continue;
                 ++shown;
                 ImGui::PushID(f.package_id);
                 ImGui::PushID(f.id);
@@ -7021,6 +7022,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
         ModFeatureListItem item{};
         item.index = index;
         if (!mods->feature_get(mods->ctx, index, &item.feature) ||
+            (item.feature.hidden && !item.feature.enabled) ||
             !mod_feature_text_matches(m->mod_search, item.feature)) {
             continue;
         }
