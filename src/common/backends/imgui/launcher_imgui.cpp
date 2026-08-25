@@ -8023,7 +8023,9 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
          * TextLinkOpenURL after a wrapped line leaves a huge empty gap in
          * BeginPopupModal (Windows first-run wizard regression). */
         ImGui::TextColored(col(th.text_muted),
-            "NOTE: psxrecomp games require a .cue + .bin dump of the disc. "
+            "NOTE: psxrecomp games require a .cue + .bin dump of the disc, "
+            "or an official re-release image (.car, e.g. from the Steam "
+            "Special Edition). "
             "Note the number of tracks required by this project; multitrack "
             "discs are often Redump-formatted dumps. You can generate your own "
             "from the original disc with redumper "
@@ -8063,7 +8065,7 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
             char title[96];
             if (plat == SETUP_PLAT_PSX)
                 std::snprintf(title, sizeof(title),
-                              "Select %s (.cue)", noun);
+                              "Select %s (.cue/.bin/.car)", noun);
             else
                 std::snprintf(title, sizeof(title), "Select %s", noun);
             if (prof && prof->rom_filter.pattern_count > 0)
@@ -8077,9 +8079,11 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
         if (m->profile && m->profile->verify.mode == 1)
             draw_verdict_block(m, th, ImGui::GetContentRegionAvail().x);
         if (plat == SETUP_PLAT_PSX && m->rom_present && m->rom_full[0]) {
+            /* .car is exempt: official Steam re-release payloads (e.g. Tomba!
+             * Special Edition's t_data_u.car) are complete single-file raw
+             * images that never ship with a cue sheet. */
             const char* ext = strrchr(m->rom_full, '.');
-            if (ext && (lps_streq_ci(ext, ".bin") || lps_streq_ci(ext, ".img") ||
-                        lps_streq_ci(ext, ".car"))) {
+            if (ext && (lps_streq_ci(ext, ".bin") || lps_streq_ci(ext, ".img"))) {
                 ImGui::PushTextWrapPos(wrap_x);
                 ImGui::TextColored(col(th.warn),
                     "You picked a track image (%s). Prefer the matching .cue "
@@ -8116,10 +8120,11 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
             (m->prepare_disc_note && m->prepare_disc_note[0])
                 ? m->prepare_disc_note
                 : (plat == SETUP_PLAT_PSX
-                       ? "Uses the selected .cue + track .bin files with the "
+                       ? "Uses the selected disc image (.cue + track .bin "
+                         "files, or a single-file .bin/.car) with the "
                          "local SDK, then "
                          "verifies digests against the game identity. Always "
-                         "point Generate at the .cue when both files exist."
+                         "point Generate at the .cue when one exists."
                        : "If your disc image is a raw dump that this game "
                          "cannot boot directly, convert it here. Output is "
                          "written next to the game.");
@@ -8144,18 +8149,19 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
                     launcher_model_start_prepare_disc(m, m->rom_full);
             } else {
                 char buf[512];
-                static const char* kPsxCueOnly[] = { "*.cue" };
+                static const char* kPsxDiscPrep[] = {
+                    "*.cue", "*.bin", "*.car" };
                 static const char* kDumpPatterns[] = {
                     "*.cue", "*.iso", "*.bin", "*.img", "*.car", "*.chd", "*.*" };
                 const char* const* pats =
-                    (plat == SETUP_PLAT_PSX) ? kPsxCueOnly : kDumpPatterns;
-                const int npat = (plat == SETUP_PLAT_PSX) ? 1 : 7;
+                    (plat == SETUP_PLAT_PSX) ? kPsxDiscPrep : kDumpPatterns;
+                const int npat = (plat == SETUP_PLAT_PSX) ? 3 : 7;
                 if (launcher_pick_file(
                         plat == SETUP_PLAT_PSX
-                            ? "Select disc (.cue)"
+                            ? "Select disc (.cue/.bin/.car)"
                             : "Select raw disc dump to convert",
                         pats, npat,
-                        plat == SETUP_PLAT_PSX ? "PlayStation disc (.cue)"
+                        plat == SETUP_PLAT_PSX ? "PlayStation disc (.cue/.bin/.car)"
                                                : "Disc dump",
                         buf, sizeof(buf)))
                     launcher_model_start_prepare_disc(m, buf);
