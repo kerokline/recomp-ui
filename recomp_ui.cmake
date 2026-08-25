@@ -57,6 +57,7 @@ set(RUI_SRC    ${RECOMP_UI_ROOT}/src)
 set(RUI_IMGUI  ${RUI_SRC}/third_party/imgui)
 set(RUI_ASSETS ${RECOMP_UI_ROOT}/assets)
 include("${RECOMP_UI_ROOT}/cmake/recomp_ui_assets.cmake")
+include("${RECOMP_UI_ROOT}/cmake/recomp_gl.cmake")
 
 # The ImGui backend is C++; the host project() is often C-only. enable_language
 # must run at directory scope (not inside the function, which executes during
@@ -212,8 +213,10 @@ function(recomp_target_launcher_ui TGT)
         # ws2_32: launcher_udp_port.c exclusive UDP bind probes for host lobby.
         target_link_libraries(${TGT} PRIVATE opengl32 ws2_32)
     else()
-        find_package(OpenGL REQUIRED)
-        target_link_libraries(${TGT} PRIVATE OpenGL::GL ${CMAKE_DL_LIBS})
+        # OpenGL::GL is absent on GLVND hosts without legacy libGL/glx.h
+        # (Steam Deck) even though the package is found — see cmake/recomp_gl.cmake.
+        recomp_resolve_gl(RUI_GL_TARGET)
+        target_link_libraries(${TGT} PRIVATE ${RUI_GL_TARGET} ${CMAKE_DL_LIBS})
     endif()
 
     if(NOT MSVC)
