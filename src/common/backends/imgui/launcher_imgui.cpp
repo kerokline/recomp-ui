@@ -8746,13 +8746,46 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
             else
                 launcher_model_cancel_capture(m);
         };
+        auto expected_dpad_button = [](int slot) -> int {
+#if defined(LNG_SDL3)
+            switch (slot) {
+            case 0: return (int)SDL_GAMEPAD_BUTTON_DPAD_UP;
+            case 1: return (int)SDL_GAMEPAD_BUTTON_DPAD_DOWN;
+            case 2: return (int)SDL_GAMEPAD_BUTTON_DPAD_LEFT;
+            case 3: return (int)SDL_GAMEPAD_BUTTON_DPAD_RIGHT;
+            default: return -1;
+            }
+#else
+            switch (slot) {
+            case 0: return (int)SDL_CONTROLLER_BUTTON_DPAD_UP;
+            case 1: return (int)SDL_CONTROLLER_BUTTON_DPAD_DOWN;
+            case 2: return (int)SDL_CONTROLLER_BUTTON_DPAD_LEFT;
+            case 3: return (int)SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
+            default: return -1;
+            }
+#endif
+        };
+        auto accepts_pad_button = [&](int slot, int button) -> bool {
+            if (!psx_cap) return true;
+            if (slot >= 0 && slot <= 3)
+                return button == expected_dpad_button(slot);
+            // Face/shoulders: ignore stray D-pad edges.
+            const int expect0 = expected_dpad_button(0);
+            const int expect3 = expected_dpad_button(3);
+            if (button >= expect0 && button <= expect3) return false;
+            return true;
+        };
         if (ev.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
             if (m->map_all_wait_release) {
                 try_clear_release_wait((uint32_t)LNG_EVGBTNWHICH(ev));
                 return true;  // never bind while waiting for release
             }
-            if (from_selected((uint32_t)LNG_EVGBTNWHICH(ev)))
-                commit_pad(LNG_PADBIND_BUTTON, (int)LNG_EVGBTN(ev), 0);
+            if (from_selected((uint32_t)LNG_EVGBTNWHICH(ev))) {
+                const int btn = (int)LNG_EVGBTN(ev);
+                if (!accepts_pad_button(m->capture_btn, btn))
+                    return true;
+                commit_pad(LNG_PADBIND_BUTTON, btn, 0);
+            }
             return true;
         }
         if (ev.type == SDL_EVENT_GAMEPAD_BUTTON_UP) {
@@ -9112,6 +9145,46 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             const uint32_t id = m->player_pad_id[m->cfg_player];
             if (id && launcher_input_gamepad_at_rest(id))
                 m->map_all_wait_release = false;
+        }
+
+        // PSX D-pad poll fallback: some Windows Xbox backends miss
+        // GAMEPAD_BUTTON_DOWN for a cardinal; commit from live button state
+        // when capturing Up/Down/Left/Right and that exact bit is held.
+        if (m->capturing && m->capture_pad && !m->map_all_wait_release &&
+            m->capture_btn >= 0 && m->capture_btn <= 3) {
+            const SystemProfile* poll_prof = (const SystemProfile*)m->profile;
+            if (poll_prof && poll_prof->id && !strcmp(poll_prof->id, "psx")) {
+                const uint32_t id = m->player_pad_id[m->cfg_player];
+                if (id) {
+#if defined(LNG_SDL3)
+                    static const int kExpect[4] = {
+                        (int)SDL_GAMEPAD_BUTTON_DPAD_UP,
+                        (int)SDL_GAMEPAD_BUTTON_DPAD_DOWN,
+                        (int)SDL_GAMEPAD_BUTTON_DPAD_LEFT,
+                        (int)SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
+                    };
+#else
+                    static const int kExpect[4] = {
+                        (int)SDL_CONTROLLER_BUTTON_DPAD_UP,
+                        (int)SDL_CONTROLLER_BUTTON_DPAD_DOWN,
+                        (int)SDL_CONTROLLER_BUTTON_DPAD_LEFT,
+                        (int)SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
+                    };
+#endif
+                    const int expect = kExpect[m->capture_btn];
+                    const uint32_t mask = launcher_input_gamepad_button_mask(id);
+                    if (expect >= 0 && expect < 32 &&
+                        (mask & (uint32_t)(1u << expect))) {
+                        launcher_binds_set_pad_button(
+                            m, m->cfg_player + 1, m->capture_btn,
+                            LNG_PADBIND_BUTTON, expect, 0);
+                        if (m->map_all_active)
+                            launcher_model_map_all_advance(m);
+                        else
+                            launcher_model_cancel_capture(m);
+                    }
+                }
+            }
         }
 
         ImGui_ImplOpenGL3_NewFrame();
