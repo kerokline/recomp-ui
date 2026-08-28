@@ -43,6 +43,8 @@ extern "C" {
 #define RECOMP_LAUNCHER_HAS_REWIND_DEPTH 1
 /* Host may #ifdef this when reading Settings.rewind_interval. */
 #define RECOMP_LAUNCHER_HAS_REWIND_INTERVAL 1
+/* Host may #ifdef this when reading Settings.rewind_enabled. */
+#define RECOMP_LAUNCHER_HAS_REWIND_ENABLED 1
 /* Host may #ifdef this when reading Settings.vsync. */
 #define RECOMP_LAUNCHER_HAS_VSYNC 1
 #define RECOMP_LAUNCHER_MAX_BINDINGS 24
@@ -757,6 +759,15 @@ struct RecompLauncherCSettings {
     char rom_patch_source_path[512];
     char rom_patch_sha1[41];
     char rom_patch_crc32[9];
+
+    /* Local rewind on/off (GameInfo.has_rewind_depth consoles).
+     *   0 = off, 1 = on.
+     * Stored plainly rather than 1-based like vsync, because here "unset" and
+     * "off" are the same answer: the host default is off, so a zero-initialized
+     * host predating this field gets the default it would have picked anyway.
+     * The ring holds whole-machine snapshots on a frame cadence, which is why
+     * it is opt-in. Appended additively. */
+    int  rewind_enabled;
 };
 
 /* Values for RecompLauncherCSettings.vsync (1-based; 0 = unset). */

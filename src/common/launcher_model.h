@@ -659,6 +659,9 @@ void launcher_model_toggle_frame_interp(LauncherModel* m);
 void launcher_model_cycle_interp_fps(LauncherModel* m);        // {0,90,120,144,165,240} wrap
 const char* launcher_model_interp_fps_label(const LauncherModel* m);  // "Display refresh"/"90 fps"
 void launcher_model_toggle_spu_hq(LauncherModel* m);
+// Local rewind on/off. Off by default: the ring holds whole-machine snapshots
+// on a frame cadence, so it is opt-in rather than a cost every host pays.
+void launcher_model_toggle_rewind_enabled(LauncherModel* m);
 void launcher_model_cycle_rewind_depth(LauncherModel* m);
 const char* launcher_model_rewind_depth_label(const LauncherModel* m);
 void launcher_model_cycle_rewind_interval(LauncherModel* m);
