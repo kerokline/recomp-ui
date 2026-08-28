@@ -188,6 +188,12 @@ ImTextureID tid(const LauncherTexture& t) { return (ImTextureID)(intptr_t)t.id; 
 LauncherPad g_pads[LNG_MAX_PADS];   // live gamepad list (repolled every frame)
 int         g_pad_count = 0;
 
+// Gamepad navigation is off until a real pad event arrives. A control already
+// asserted when the launcher opens -- a stuck axis, a wedged virtual device --
+// generates no event, so it can never drive the menu or press the focused
+// PLAY button. See the arming note in the event loop.
+static bool s_pad_nav_armed = false;
+
 char        g_pick_buf[512] = {};    // ROM picker result
 
 enum class BuiltinPickerKind { Rom, Bios, SetupToolchainZip };
@@ -8977,7 +8983,11 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    /* Gamepad nav is enabled only once a real pad event has arrived -- see the
+     * arming note in the event loop. Keyboard nav is unconditional: a stuck
+     * KEY would have to be physically held, and the window would not have
+     * focus to receive it. */
+    s_pad_nav_armed = false;
 #if defined(__ANDROID__)
     io.ConfigFlags |= ImGuiConfigFlags_IsTouchScreen;
 #endif
@@ -9117,6 +9127,37 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             if (ev.type == SDL_EVENT_QUIT) p->should_quit = true;
             if (ev.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) p->should_quit = true;
             if (try_capture(m, ev)) continue;
+            /* Arm gamepad navigation on the first REAL pad input.
+             *
+             * A control that is already asserted when the launcher opens
+             * produces no event -- SDL reports a steady state, and events
+             * only arrive on a transition. A human pressing a button always
+             * produces one. That difference is the whole test, and it is why
+             * this is done here on the event queue rather than by polling
+             * state in NewFrame, where the two are indistinguishable.
+             *
+             * Measured on a host with a Sunshine "Mouse passthrough
+             * (absolute)" virtual joystick [0xbeef/0xdead] whose axes sit
+             * pinned at -32767: ImGui gamepad nav is on and PLAY holds
+             * default focus, so the stuck axis activated PLAY about two
+             * seconds after the window opened and the launcher was gone
+             * before anyone could use it. Every port on that host booted
+             * straight into the game and looked like it was ignoring the
+             * launcher entirely. */
+            switch (ev.type) {
+            case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+            case SDL_EVENT_JOYSTICK_BUTTON_DOWN:
+                /* Buttons only. SDL reports every axis's CURRENT value as a
+                 * motion event when it opens a device, so a stick that is
+                 * merely resting -- or wedged at its limit -- arrives as
+                 * motion and would arm this on the very first frame, which is
+                 * precisely the case this exists to catch. A button press is
+                 * unambiguous; an axis value is not. */
+                s_pad_nav_armed = true;
+                break;
+            default:
+                break;
+            }
             LNG_ImplSDL_ProcessEvent(&ev);
         } while (SDL_PollEvent(&ev));
 
@@ -9199,7 +9240,8 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
          * and Enter still work while listening. */
         {
             ImGuiIO& nav_io = ImGui::GetIO();
-            if (m->capturing || m->hk_capturing || m->camera_capturing)
+            if (m->capturing || m->hk_capturing || m->camera_capturing ||
+                !s_pad_nav_armed)
                 nav_io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
             else
                 nav_io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
