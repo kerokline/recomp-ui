@@ -1317,6 +1317,23 @@ typedef struct RecompLauncherCGameInfo {
      * is today apart from the button's verb. */
     const RecompLauncherCDisc* discs;
     int num_discs;
+
+    /* ---- window / taskbar icon (appended additively) ---------------------
+     * Path to the image the HOST's own runtime applies as its window icon
+     * (PNG/TGA/JPEG). The launcher applies the SAME file so the two windows
+     * are one product in the task switcher instead of the game carrying the
+     * real art and the launcher the toolkit's placeholder. The host resolves
+     * it rather than the launcher guessing, because the file's name and
+     * location are the host's convention.
+     *
+     * On Windows the executable's embedded .ico already covers the whole
+     * process, so this mainly matters on Linux and macOS -- but it is applied
+     * everywhere so the two windows can never disagree.
+     *
+     * NULL/"" (and every host that predates this field) leaves the launcher
+     * window with the toolkit default, exactly as before. Borrowed; must
+     * outlive the run_window call. */
+    const char* window_icon_path;
 } RecompLauncherCGameInfo;
 
 /* recomp_launcher_run_window return codes */
