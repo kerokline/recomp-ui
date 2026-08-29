@@ -77,6 +77,13 @@ typedef enum {
 // headroom for future systems without another struct-layout change.
 #define LNG_MAX_BUTTONS 24
 
+// Upper bound on a multi-image title's disc roster (GameInfo.num_discs).
+// The largest shipped PS1 sets are 4 discs (Final Fantasy IX, Xenogears is
+// 2); 8 leaves headroom without making the model struct meaningfully bigger.
+// A host that publishes more discs than this has its roster clamped, and the
+// discs past the cap simply do not appear in the dropdown.
+#define LNG_MAX_DISCS 8
+
 // Upper bound on a SystemProfile's ControllerSpec.max_players — sizes the
 // per-player state below. Mirrors RECOMP_LAUNCHER_MAX_PLAYERS (the ABI
 // player-array width, recomp_launcher.h): N64 exposes 4 controller ports.
@@ -400,6 +407,27 @@ typedef struct {
     bool     sha_match;      // any known_sha256 matched
     bool     sha1_match;     // any known_sha1_hex matched
 
+    // ---- multi-image disc roster (GameInfo.discs) ----
+    // Borrowed build roster: which discs this game was compiled against.
+    // num_discs <= 1 means a single-image title and none of the disc-selection
+    // UI composes. disc_selected is a 0-based index into discs[]; it tracks
+    // rom_full, so a browse-in rebinds the SELECTED slot rather than silently
+    // becoming "the disc" for a set the build still expects N images of.
+    const RecompLauncherCDisc* discs;
+    int      num_discs;
+    int      disc_selected;
+    // Session-only per-slot browse-in. The roster path is what the build was
+    // made against; when a player points slot i somewhere else this run, that
+    // path lives here and shadows discs[i].path. Only the SELECTED slot's
+    // path is persisted (settings disc path + disc_index), so an override on
+    // an unselected slot is deliberately not remembered across runs.
+    char     disc_path_override[LNG_MAX_DISCS][512];
+    // Formatted "Disc N" fallback text for a host that supplied no label.
+    // One slot per disc rather than one shared buffer, so a caller may hold
+    // two rows' labels at once (the combo does: preview plus the row it is
+    // drawing) without the second overwriting the first.
+    char     disc_label_scratch[LNG_MAX_DISCS][32];
+
     // ---- disc-verdict result (verify.mode==1 systems only; PSX today) ----
     // See VerifyResult above. Untouched (all-zero) for verify.mode==0 systems
     // (SNES) — panels branch on m->profile->verify.mode, never on this alone.
@@ -555,6 +583,27 @@ void launcher_model_commit(const LauncherModel* m, RecompLauncherCSettings* io);
 // Adopt a newly-picked ROM path (from the native file dialog): updates the
 // displayed file name / verification state.
 void launcher_model_set_rom(LauncherModel* m, const char* path);
+
+// ---- multi-image disc roster (GameInfo.discs) ----------------------------
+// Number of discs this build was made from. 0 or 1 => single-image title:
+// the Disc Selection dropdown does not compose and the browse button carries
+// no disc number.
+int  launcher_model_disc_count(const LauncherModel* m);
+// 0-based index of the selected roster slot, or -1 when there is no roster.
+int  launcher_model_disc_selected(const LauncherModel* m);
+// Disc number as printed on the media for slot `idx` (1-based). 0 when idx is
+// out of range.
+int  launcher_model_disc_number(const LauncherModel* m, int idx);
+// Dropdown row text for slot `idx` — the host's label when it gave one, else
+// "Disc <number>". Never NULL; "" when idx is out of range.
+const char* launcher_model_disc_label(const LauncherModel* m, int idx);
+// Effective image path for slot `idx`: this run's browse-in when the player
+// made one, otherwise the path the build was made against. "" out of range.
+const char* launcher_model_disc_path(const LauncherModel* m, int idx);
+// Select a disc: rebinds the ROM path (re-running verification against the
+// new image) and records the choice in settings so it persists. Out-of-range
+// indices are ignored; re-selecting the current disc is a no-op.
+void launcher_model_select_disc(LauncherModel* m, int idx);
 
 // Full path of the currently selected ROM ("" when none).
 const char* launcher_model_rom_path(const LauncherModel* m);

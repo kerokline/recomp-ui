@@ -148,6 +148,73 @@ static float clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
+// ---- multi-image disc roster helpers -------------------------------------
+// File-name stem (basename minus the last extension) of a path, lowercased
+// into `out`. Length 0 when there is nothing usable.
+static size_t lm_path_stem(const char* path, char* out, size_t cap) {
+    if (!path || !out || cap == 0) return 0;
+    out[0] = '\0';
+    const char* base = path;
+    for (const char* p = path; *p; ++p)
+        if (*p == '/' || *p == '\\') base = p + 1;
+    const char* dot = NULL;
+    for (const char* p = base; *p; ++p)
+        if (*p == '.') dot = p;
+    size_t n = dot && dot != base ? (size_t)(dot - base) : strlen(base);
+    if (n >= cap) n = cap - 1;
+    for (size_t i = 0; i < n; ++i) {
+        char c = base[i];
+        out[i] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c;
+    }
+    out[n] = '\0';
+    return n;
+}
+
+// Compare two disc paths for "same image". Exact string equality first (the
+// common case: the launcher hands back exactly the path the host gave it),
+// then a case-insensitive compare of the file-name STEM. The stem, not the
+// whole name: a .cue and the .bin it owns are one disc, and hosts hand us
+// either — psxrecomp resolves a picked .cue to its .bin before it mounts —
+// so "Disc 2.cue" and "Disc 2.bin" must land on the same roster slot. Two
+// different discs of a set never share a stem; they are numbered.
+static int lm_path_eq(const char* a, const char* b) {
+    if (!a || !b || !a[0] || !b[0]) return 0;
+    if (strcmp(a, b) == 0) return 1;
+    char sa[128], sb[128];
+    if (!lm_path_stem(a, sa, sizeof(sa)) || !lm_path_stem(b, sb, sizeof(sb)))
+        return 0;
+    return strcmp(sa, sb) == 0;
+}
+
+// Roster slot whose effective path is `path`, or -1 when it is off-roster.
+static int lm_disc_index_for_path(const LauncherModel* m, const char* path) {
+    if (!m || m->num_discs <= 0 || !path || !path[0]) return -1;
+    for (int i = 0; i < m->num_discs; ++i)
+        if (lm_path_eq(launcher_model_disc_path(m, i), path)) return i;
+    return -1;
+}
+
+// Bind rom_full to the roster after any ROM change. Either the new path IS a
+// roster image (select that slot) or the player browsed to a replacement for
+// the slot they had selected (record it as that slot's override) — never a
+// silent collapse of an N-disc set to whatever single file was last picked.
+static void lm_bind_disc_selection(LauncherModel* m) {
+    if (!m || m->num_discs <= 0) {
+        if (m) m->disc_selected = -1;
+        return;
+    }
+    if (m->disc_selected < 0 || m->disc_selected >= m->num_discs)
+        m->disc_selected = 0;
+    const int hit = lm_disc_index_for_path(m, m->rom_full);
+    if (hit >= 0) {
+        m->disc_selected = hit;
+    } else if (m->rom_present) {
+        safe_copy(m->disc_path_override[m->disc_selected],
+                  sizeof(m->disc_path_override[m->disc_selected]), m->rom_full);
+    }
+    m->s.disc_index = launcher_model_disc_number(m, m->disc_selected);
+}
+
 static void run_verify(LauncherModel* m);   // fwd; defined below, called from launcher_model_set_rom
 static void update_msu1_patch_available(LauncherModel* m);   // fwd; called from launcher_model_set_rom
 static void lm_inspect_memcard(LauncherModel* m, int slot); // fwd; host memcard_inspect callback
@@ -215,6 +282,21 @@ void launcher_model_init(LauncherModel* m,
         m->has_player_name      = game->has_player_name != 0;
         m->identity_detail      = game->identity_detail;
         m->rom_noun             = game->rom_noun ? game->rom_noun : "ROM";
+        /* Multi-image roster. Only entries with a real path count: a host that
+         * declared N discs but left one path NULL publishes a set the player
+         * could select an unmountable slot from, so the roster stops at the
+         * first hole rather than offering a row that cannot boot. */
+        m->discs                = game->discs;
+        m->num_discs            = 0;
+        if (game->discs && game->num_discs > 0) {
+            const int cap = game->num_discs < LNG_MAX_DISCS
+                                ? game->num_discs : LNG_MAX_DISCS;
+            while (m->num_discs < cap &&
+                   game->discs[m->num_discs].path &&
+                   game->discs[m->num_discs].path[0])
+                m->num_discs++;
+        }
+        if (m->num_discs == 0) m->discs = NULL;
         m->language_labels      = game->language_labels;
         m->num_languages        = game->num_languages;
         m->disc_verify_cb       = game->disc_verify;      // real disc verdict (PSX), or NULL
@@ -332,6 +414,14 @@ void launcher_model_init(LauncherModel* m,
     }
 
     if (io) m->s = *io;
+    /* Seed the selected disc from the host's persisted setting BEFORE the ROM
+     * is read: launcher_model_set_rom() below binds initial_rom to the roster,
+     * and when that path is off-roster (the player relocated the image) the
+     * slot it lands on must be the one the host remembered, not slot 0.
+     * disc_index is 1-based; 0 = unset -> disc 1. */
+    m->disc_selected = m->num_discs > 0
+                           ? clampi(m->s.disc_index - 1, 0, m->num_discs - 1)
+                           : -1;
     /* Rewind buffer: 50/100/150/200; interval 1/4/8/12/15. */
     {
         int d = m->s.rewind_depth;
@@ -750,6 +840,49 @@ void launcher_model_commit(const LauncherModel* m, RecompLauncherCSettings* io) 
     if (io) *io = m->s;
 }
 
+int launcher_model_disc_count(const LauncherModel* m) {
+    return m ? m->num_discs : 0;
+}
+
+int launcher_model_disc_selected(const LauncherModel* m) {
+    if (!m || m->num_discs <= 0) return -1;
+    return clampi(m->disc_selected, 0, m->num_discs - 1);
+}
+
+int launcher_model_disc_number(const LauncherModel* m, int idx) {
+    if (!m || idx < 0 || idx >= m->num_discs || !m->discs) return 0;
+    /* 0 = the host left the number unset for an ordinary 1..N set. */
+    return m->discs[idx].number > 0 ? m->discs[idx].number : idx + 1;
+}
+
+const char* launcher_model_disc_label(const LauncherModel* m, int idx) {
+    if (!m || idx < 0 || idx >= m->num_discs || !m->discs) return "";
+    const char* label = m->discs[idx].label;
+    if (label && label[0]) return label;
+    /* Per-slot scratch so the returned pointer stays valid alongside every
+     * other row's label for as long as the caller is drawing the dropdown. */
+    LauncherModel* mm = (LauncherModel*)m;
+    snprintf(mm->disc_label_scratch[idx], sizeof(mm->disc_label_scratch[idx]),
+             "Disc %d", launcher_model_disc_number(m, idx));
+    return mm->disc_label_scratch[idx];
+}
+
+const char* launcher_model_disc_path(const LauncherModel* m, int idx) {
+    if (!m || idx < 0 || idx >= m->num_discs || !m->discs) return "";
+    if (m->disc_path_override[idx][0]) return m->disc_path_override[idx];
+    return m->discs[idx].path ? m->discs[idx].path : "";
+}
+
+void launcher_model_select_disc(LauncherModel* m, int idx) {
+    if (!m || m->num_discs <= 0) return;
+    if (idx < 0 || idx >= m->num_discs) return;
+    if (idx == m->disc_selected) return;
+    m->disc_selected = idx;
+    /* set_rom re-runs the disc verdict against the newly mounted image and
+     * calls back into lm_bind_disc_selection, which writes s.disc_index. */
+    launcher_model_set_rom(m, launcher_model_disc_path(m, idx));
+}
+
 void launcher_model_set_rom(LauncherModel* m, const char* path) {
     m->rom_present = path && path[0] != '\0';
     safe_copy(m->rom_full, sizeof(m->rom_full), m->rom_present ? path : "");
@@ -837,6 +970,11 @@ void launcher_model_set_rom(LauncherModel* m, const char* path) {
         }
     }
     if (!m->rom_size[0]) safe_copy(m->rom_size, sizeof(m->rom_size), "--");
+
+    /* Keep the roster selection and the mounted path in agreement BEFORE the
+     * verdict runs, so the checklist the dropdown sits above always describes
+     * the disc the dropdown is showing. */
+    lm_bind_disc_selection(m);
 
     run_verify(m);
     update_msu1_patch_available(m);

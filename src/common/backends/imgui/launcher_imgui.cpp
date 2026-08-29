@@ -1020,6 +1020,31 @@ const LauncherTexture& verdict_texture(int verdict) {
     }
 }
 
+// Disc Selection dropdown for a multi-image title (GameInfo.discs). Draws
+// nothing at all for a single-image game, so every existing launcher keeps
+// its current layout. Selecting a row remounts that disc: the model re-runs
+// the disc verdict against it and records the choice in Settings.disc_index,
+// which the host persists like any other setting.
+void draw_disc_selector(LauncherModel* m, const LauncherTheme& th, float availw) {
+    const int count = launcher_model_disc_count(m);
+    if (count <= 1) return;
+    const int sel = launcher_model_disc_selected(m);
+
+    ImGui::TextColored(col(th.text_muted), "Disc Selection");
+    ImGui::Dummy(ImVec2(0, px(4)));
+    ImGui::SetNextItemWidth(availw);
+    if (ImGui::BeginCombo("##disc_selection",
+                          sel >= 0 ? launcher_model_disc_label(m, sel) : "")) {
+        for (int i = 0; i < count; ++i) {
+            if (ImGui::Selectable(launcher_model_disc_label(m, i), i == sel))
+                launcher_model_select_disc(m, i);
+            if (i == sel) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::Dummy(ImVec2(0, px(10)));
+}
+
 // Disc-verdict block (verify.mode==1 systems, e.g. PSX): a verdict icon +
 // headline, followed by a Serial/Region/ISO-header checklist. Replaces the
 // CRC/SHA "verified" line that mode==0 (cart/ROM-hash) systems draw instead
@@ -1027,7 +1052,7 @@ const LauncherTexture& verdict_texture(int verdict) {
 // m->verify, populated by launcher_model_set_rom()/run_verify() in
 // launcher_model.c (real probe when the SystemProfile has one, a synthesized
 // placeholder verdict otherwise).
-void draw_verdict_block(const LauncherModel* m, const LauncherTheme& th, float availw) {
+void draw_verdict_block(LauncherModel* m, const LauncherTheme& th, float availw) {
     const VerifyResult& v = m->verify;
     // Keep the Serial/Region/ISO checklist mounted even before a disc is
     // picked (setup wizard) so AutoResize modals don't jump when verify runs.
@@ -1064,6 +1089,13 @@ void draw_verdict_block(const LauncherModel* m, const LauncherTheme& th, float a
     ImGui::SameLine(0, px(6));
     ImGui::TextColored(col(headline_color), "%s", headline);
     ImGui::Dummy(ImVec2(0, px(8)));
+
+    // Disc Selection: which image of a multi-disc set Play boots. It sits
+    // ABOVE the identity checklist on purpose — Serial / Region / ISO header
+    // describe the SELECTED disc (each disc of a set carries its own serial),
+    // so the control that decides which disc that is has to read first.
+    // Single-disc titles never compose this.
+    draw_disc_selector(m, th, availw);
 
     // Checklist: Serial / Region / ISO header. Before a disc is chosen, show
     // em-dashes with no pass/fail marks so the layout still reserves the rows.
@@ -1119,6 +1151,8 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
         // + Change ROM, plus the SAVES block when this game has battery SRAM.
         float reserve = px(198.0f);
         if (disc_verdict) reserve += px(120.0f);          // taller: icon+headline + tracks row
+        // Disc Selection label + combo + spacing, for a multi-image title.
+        if (launcher_model_disc_count(m) > 1) reserve += px(62.0f);
         if (m->saves_supported) reserve += px(96.0f);    // compact SAVES row below Change ROM
         if (m->password_save_path) reserve += px(96.0f); // password-save row (same footprint)
         if (m->msu1_patch_available) reserve += px(198.0f);  // MSU-1 patch-available sub-block
@@ -1164,8 +1198,22 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
         ImGui::EndTable();
     }
     ImGui::Dummy(ImVec2(0, px(12)));
-    char change_label[32];
-    snprintf(change_label, sizeof(change_label), "Change %s", noun);
+    // "Browse For Disc 2", not "Change Disc": on a multi-disc set the button
+    // does not swap which disc the game is on — the Disc Selection dropdown
+    // above does that — it re-points the SELECTED disc at a file on this
+    // machine. Naming the disc number is what keeps those two apart. A
+    // single-image title has nothing to number, so it reads "Browse For Disc"
+    // ("Browse For ROM" on cartridge consoles, from the profile's rom_noun).
+    const int disc_no = launcher_model_disc_count(m) > 1
+                            ? launcher_model_disc_number(
+                                  m, launcher_model_disc_selected(m))
+                            : 0;
+    char change_label[48];
+    if (disc_no > 0)
+        snprintf(change_label, sizeof(change_label), "Browse For %s %d", noun,
+                 disc_no);
+    else
+        snprintf(change_label, sizeof(change_label), "Browse For %s", noun);
     if (ImGui::Button(change_label, ImVec2(availw, px(34)))) {
         // Native file dialog filter comes from the active console's
         // SystemProfile.rom_filter — never a hardcoded per-system set. Every
@@ -1174,8 +1222,11 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
         // forgets rom_filter degrades to "any file" rather than prompting for
         // some other machine's media.
         const SystemProfile* prof = (const SystemProfile*)m->profile;
-        char title[48];
-        snprintf(title, sizeof(title), "Select %s", noun);
+        char title[64];
+        if (disc_no > 0)
+            snprintf(title, sizeof(title), "Select %s %d", noun, disc_no);
+        else
+            snprintf(title, sizeof(title), "Select %s", noun);
         if (prof && prof->rom_filter.patterns && prof->rom_filter.pattern_count > 0)
             request_rom_picker(m, title, prof->rom_filter.patterns,
                                prof->rom_filter.pattern_count,

@@ -768,6 +768,15 @@ struct RecompLauncherCSettings {
      * The ring holds whole-machine snapshots on a frame cadence, which is why
      * it is opt-in. Appended additively. */
     int  rewind_enabled;
+
+    /* ---- selected disc (GameInfo.discs titles) ---------------------------
+     * 1-based number of the disc the player has selected, so the choice is an
+     * ordinary persisted setting the host writes to its settings file
+     * alongside every other row here — which is what lets an external
+     * launcher manage it, and what makes the last-played disc come back next
+     * session. 0 = unset: the launcher seeds it by matching initial_rom
+     * against the roster, falling back to disc 1. Appended additively. */
+    int  disc_index;
 };
 
 /* Values for RecompLauncherCSettings.vsync (1-based; 0 = unset). */
@@ -836,6 +845,24 @@ typedef struct RecompLauncherCTpak {
     // 0 unknown/other (gray), 1 red, 2 blue, 3 yellow, 4 green.
     int  cart_kind;
 } RecompLauncherCTpak;
+
+// One image of a multi-image title, as the BUILD knows it. A PSX game built
+// from a 3-disc set publishes three of these, in disc order, and the launcher
+// renders a "Disc Selection" dropdown so the player picks which one Play
+// boots. This is the build's roster — the discs the game was compiled
+// against — not a scan of the player's folder; a player who moved one image
+// still browses for it, and that browse rebinds only the selected slot.
+typedef struct RecompLauncherCDisc {
+    // Disc number as printed on the media (1-based). 0 => use the array
+    // position + 1, so a host may leave this unset for an ordinary 1..N set.
+    int         number;
+    // Optional display name for the dropdown row. NULL/"" => the launcher
+    // shows "Disc <number>". Borrowed; must outlive the run_window call.
+    const char* label;
+    // The image the build was made against (a .cue where one exists).
+    // Borrowed; must outlive the run_window call.
+    const char* path;
+} RecompLauncherCDisc;
 
 typedef struct RecompLauncherCGameInfo {
     const char*    name;
@@ -1278,6 +1305,18 @@ typedef struct RecompLauncherCGameInfo {
     const char* rom_patch_note;
     const char* rom_patch_cache_dir;
     const char* rom_patch_required_sha1;
+
+    /* ---- multi-image titles (appended additively) ------------------------
+     * The roster of discs this build was made from, in disc order. When
+     * num_discs > 1 the game panel grows a "Disc Selection" dropdown above
+     * the identity checklist, the browse button names the selected disc
+     * ("Browse For Disc 2"), and Play boots whichever disc is selected —
+     * the chosen number rides back out in Settings.disc_index and the
+     * chosen path in out_rom_path. NULL/0 (every single-image title, and
+     * every host that predates this field) leaves the panel exactly as it
+     * is today apart from the button's verb. */
+    const RecompLauncherCDisc* discs;
+    int num_discs;
 } RecompLauncherCGameInfo;
 
 /* recomp_launcher_run_window return codes */
