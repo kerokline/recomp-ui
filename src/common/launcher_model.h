@@ -200,6 +200,11 @@ typedef struct {
     int (*bios_verify_cb)(const char* bios_path, RecompLauncherCBiosVerify* out);
     /* Optional host flush for first-run picks (project-root bios.cfg / disc.cfg). */
     int (*persist_setup_cb)(void* ctx, const char* rom_path, const char* bios_path);
+    /* Multi-disc flush. Used INSTEAD of persist_setup_cb when non-NULL and the
+     * title has a roster (num_discs > 1), so every located image is written,
+     * not just the selected one. See RecompLauncherCGameInfo.persist_setup_discs. */
+    int (*persist_setup_discs_cb)(void* ctx, const char* const* disc_paths,
+                                  int disc_count, const char* bios_path);
     void*       persist_setup_ctx;
     int (*prepare_disc_cb)(const char* source_path, char* out_disc_path, size_t out_cap,
                            char* err_msg, size_t err_cap);
@@ -604,6 +609,24 @@ const char* launcher_model_disc_path(const LauncherModel* m, int idx);
 // new image) and records the choice in settings so it persists. Out-of-range
 // indices are ignored; re-selecting the current disc is a no-op.
 void launcher_model_select_disc(LauncherModel* m, int idx);
+
+// ---- per-slot disc paths (setup wizard) ---------------------------------
+// Bind one slot's image without changing which disc is selected. This is what
+// the wizard's per-disc rows call: a player locating disc 3 is telling us
+// where disc 3 lives, not asking to boot it. Binding the SELECTED slot also
+// rebinds the ROM (and so re-runs verification), because for that slot the two
+// are the same fact. An empty/NULL path clears the slot.
+void launcher_model_set_disc_path(LauncherModel* m, int idx, const char* path);
+// True when slot idx has a path that exists on disk.
+bool launcher_model_disc_ready(const LauncherModel* m, int idx);
+// How many slots are ready — the "N of M selected" counter.
+int  launcher_model_discs_ready_count(const LauncherModel* m);
+// Fill unset slots by pattern-matching siblings of an already-located disc
+// (".../Foo (Disc 1).cue" -> ".../Foo (Disc 2).cue", including the parent
+// directory when the set is stored one folder per disc). Only writes slots
+// that are currently empty, and only when the candidate exists. Returns how
+// many slots were newly filled.
+int  launcher_model_autofill_sibling_discs(LauncherModel* m);
 
 // Full path of the currently selected ROM ("" when none).
 const char* launcher_model_rom_path(const LauncherModel* m);

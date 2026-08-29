@@ -135,6 +135,24 @@ if(BUILD_TESTING)
         COMMAND $<TARGET_FILE:recomp-ui-psx-binds-test>
                 "${CMAKE_CURRENT_BINARY_DIR}/psx-binds-test.ini")
 
+    # Multi-disc roster: sibling autofill + per-slot binding. Includes
+    # launcher_model.c (not links it) to reach the static path rewriter, so the
+    # model's own deps are compiled in alongside.
+    add_executable(recomp-ui-launcher-discs-test
+        tests/launcher_discs_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-discs-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-discs-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-discs
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-discs-test>
+                "${CMAKE_CURRENT_BINARY_DIR}")
+
     add_executable(recomp-ui-psx-profile-test
         tests/psx_profile_test.c)
     target_include_directories(recomp-ui-psx-profile-test PRIVATE

@@ -1334,6 +1334,27 @@ typedef struct RecompLauncherCGameInfo {
      * window with the toolkit default, exactly as before. Borrowed; must
      * outlive the run_window call. */
     const char* window_icon_path;
+
+    /* ---- multi-disc setup flush (appended additively) --------------------
+     * persist_setup carries ONE path, which is all a single-image title has.
+     * A multi-disc set needs every image the player located, not just the one
+     * the wizard happened to have selected -- otherwise the other discs are
+     * re-browsed on the next run, or worse, silently missing when the game
+     * asks for disc 2.
+     *
+     * When this is non-NULL and num_discs > 1, the launcher calls it INSTEAD
+     * of persist_setup after the wizard's picks are confirmed. disc_paths is
+     * disc-ordered with disc_count entries; a slot the player has not located
+     * is "" rather than NULL, so the host can still write a placeholder line
+     * and keep the file's disc ordering intact.
+     *
+     * Hosts that predate this field, and single-image titles, keep going
+     * through persist_setup unchanged -- so leaving this NULL is not a
+     * degraded path, it is the correct one for a one-disc game.
+     *
+     * Return 0 on success, like persist_setup. Uses persist_setup_ctx. */
+    int (*persist_setup_discs)(void* ctx, const char* const* disc_paths,
+                               int disc_count, const char* bios_path);
 } RecompLauncherCGameInfo;
 
 /* recomp_launcher_run_window return codes */
