@@ -9161,13 +9161,17 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
              * launcher entirely. */
             switch (ev.type) {
             case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
-            case SDL_EVENT_GAMEPAD_AXIS_MOTION:
             case SDL_EVENT_JOYSTICK_BUTTON_DOWN:
                 s_pad_nav_armed = true;
                 break;
             default:
                 break;
             }
+            /* Buttons only, deliberately. SDL reports every axis's CURRENT
+             * value as a motion event when it opens a device, so a stick that
+             * is merely resting -- or wedged -- arrives as motion and would
+             * arm this on the first frame, which is the exact case it exists
+             * to catch. A press is unambiguous; an axis is not. */
             LNG_ImplSDL_ProcessEvent(&ev);
         } while (SDL_PollEvent(&ev));
 
