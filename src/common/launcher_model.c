@@ -907,6 +907,22 @@ void launcher_model_set_disc_path(LauncherModel* m, int idx, const char* path) {
         launcher_model_set_rom(m, launcher_model_disc_path(m, idx));
 }
 
+const char* launcher_model_disc_suggested_name(const LauncherModel* m, int idx) {
+    const char* p;
+    const char* slash;
+    const char* back;
+    if (!m || idx < 0 || idx >= m->num_discs || !m->discs) return "";
+    /* Deliberately the ROSTER path, not launcher_model_disc_path(): once the
+     * player locates their own copy this is still the build's file name, and
+     * the caller only uses it while the slot is unlocated. */
+    p = m->discs[idx].path;
+    if (!p || !p[0]) return "";
+    slash = strrchr(p, '/');
+    back = strrchr(p, '\\');
+    if (back && (!slash || back > slash)) slash = back;
+    return slash ? slash + 1 : p;
+}
+
 bool launcher_model_disc_ready(const LauncherModel* m, int idx) {
     if (!m || idx < 0 || idx >= m->num_discs) return false;
     return lm_path_exists(launcher_model_disc_path(m, idx)) ? true : false;
@@ -2184,6 +2200,13 @@ bool launcher_model_can_finish_setup(const LauncherModel* m) {
      * Codegen hosts may also require a successful prepare/rebuild. */
     if (!m->rom_present || !m->rom_full[0]) return false;
     if (m->has_bios && !m->setup_bios_ok) return false;
+    /* A set is all-or-nothing: building one disc at a time is not supported, so
+     * a partially located set cannot produce a working install. Letting the
+     * wizard close on one located disc would defer that failure to whenever the
+     * player first needs disc 2. */
+    if (m->num_discs > 1 &&
+        launcher_model_discs_ready_count(m) < m->num_discs)
+        return false;
     if (m->prepare_required_before_continue && !m->setup_prepare_satisfied)
         return false;
     /* Disc titles: local setup only needs a readable, title-matching mount.

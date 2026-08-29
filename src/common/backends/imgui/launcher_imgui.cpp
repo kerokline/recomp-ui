@@ -7850,82 +7850,102 @@ static void setup_help_marker(const LauncherTheme& th, const char* text) {
  * Only disc 1 gates progress. Generate runs off the boot image, and discs 2..N
  * matter later, at swap time -- blocking the wizard on all of them would strand
  * a player who has disc 1 to hand and the rest in a drawer. */
+/* Multi-disc media section: one row per disc of the set, in one bordered frame.
+ *
+ * The wizard previously asked for one image, because persist_setup carried one
+ * path -- so a 3-disc set left the player to discover mid-game that discs 2 and
+ * 3 were never recorded. Asking for all of them is the fix; asking as N copies
+ * of the old full-height block is not, because the wizard is a fixed-height
+ * modal.
+ *
+ * A row is: "Disc N", the file, and Browse. There is deliberately no status
+ * column -- the path IS the status (a located disc shows its file, an unlocated
+ * one shows the greyed name to look for), and a separate OK/Needed column both
+ * repeated that and cost the width the path needed.
+ *
+ * Every disc is required. Building one disc at a time is not supported, so a
+ * partially located set cannot produce a working install and the wizard should
+ * not let one through.
+ */
 static void draw_setup_disc_frame(LauncherModel* m, const LauncherTheme& th,
-                                  const char* noun, const char* const* patterns,
+                                  const char* const* patterns,
                                   int pattern_count, const char* pattern_desc,
                                   const char* long_note) {
     const int count = launcher_model_disc_count(m);
     const int ready = launcher_model_discs_ready_count(m);
-    const int sel = launcher_model_disc_selected(m);
 
     ImGui::AlignTextToFramePadding();
-    ImGui::TextColored(col(th.text_muted),
-                       "This release was built from a %d-disc set.", count);
+    ImGui::TextColored(col(ready >= count ? th.good : th.warn),
+                       "%d of %d located", ready, count);
+    ImGui::SameLine();
+    ImGui::TextColored(col(th.text_muted), "- all discs are required.");
     ImGui::SameLine();
     setup_help_marker(th, long_note);
-    ImGui::SameLine();
-    {
-        char counter[48];
-        std::snprintf(counter, sizeof(counter), "%d of %d located", ready, count);
-        const float w = ImGui::CalcTextSize(counter).x;
-        const float avail = ImGui::GetContentRegionAvail().x;
-        if (avail > w) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + avail - w);
-        ImGui::TextColored(col(ready >= count ? th.good : th.warn), "%s", counter);
-    }
 
-    const float row_h = ImGui::GetFrameHeight() + px(6);
-    ImGui::BeginChild("##setup_discs", ImVec2(0, row_h * (float)count + px(10)),
-                      true);
+    /* Size the frame to hold every row. Getting this wrong scrolls the last
+     * disc out of sight, which on a 3-disc set hides a required field. */
+    const float row_h = ImGui::GetFrameHeightWithSpacing();
+    const float pad = ImGui::GetStyle().WindowPadding.y * 2.0f;
+    ImGui::BeginChild("##setup_discs", ImVec2(0, row_h * (float)count + pad),
+                      true, ImGuiWindowFlags_NoScrollbar);
+    const float btn_w = px(88);
     for (int i = 0; i < count; ++i) {
         const bool ok = launcher_model_disc_ready(m, i);
-        const bool required = (i == 0);
+        const char* dp = launcher_model_disc_path(m, i);
         ImGui::PushID(i);
 
         ImGui::AlignTextToFramePadding();
-        ImGui::TextColored(col(ok ? th.good : (required ? th.warn : th.text_muted)),
-                           "%s", ok ? "OK" : (required ? "Needed" : "--"));
-        ImGui::SameLine(px(64));
-
-        ImGui::AlignTextToFramePadding();
         ImGui::TextColored(col(th.text), "%s", launcher_model_disc_label(m, i));
-        ImGui::SameLine(px(140));
+        ImGui::SameLine(px(72));
 
-        const char* dp = launcher_model_disc_path(m, i);
-        char elided[220];
+        /* Reserve the button's column first so a long path is elided into the
+         * space that is actually left, instead of running under the button. */
+        const float row_w = ImGui::GetContentRegionAvail().x;
+        const float text_w = row_w - btn_w - px(12);
+
+        char elided[260];
         ImGui::AlignTextToFramePadding();
-        if (dp && dp[0]) {
-            elide_left(dp, px(330), elided, sizeof(elided));
-            ImGui::TextColored(col(ok ? th.text : th.warn), "%s", elided);
+        if (ok) {
+            elide_left(dp, text_w, elided, sizeof(elided));
+            ImGui::TextColored(col(th.text), "%s", elided);
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", dp);
         } else {
-            ImGui::TextColored(col(th.text_muted), "%s",
-                               required ? "(none selected)"
-                                        : "(optional -- needed to swap discs)");
+            /* Not located: show the file NAME the project was built from. It
+             * is the one useful hint we have -- the player is looking for their
+             * own copy of that image, and the developer's absolute path is
+             * meaningless on their machine while the file name is not. */
+            const char* hint = launcher_model_disc_suggested_name(m, i);
+            if (hint && hint[0]) {
+                elide_left(hint, text_w, elided, sizeof(elided));
+                ImGui::TextColored(col(th.text_muted), "%s", elided);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Look for a file named:\n%s", hint);
+            } else {
+                ImGui::TextColored(col(th.text_muted), "(not selected)");
+            }
         }
 
         ImGui::SameLine();
         {
             const float avail = ImGui::GetContentRegionAvail().x;
-            const float bw = px(96);
-            if (avail > bw) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + avail - bw);
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(px(10), px(4)));
-            if (ImGui::Button("Browse", ImVec2(bw, 0))) {
+            if (avail > btn_w)
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + avail - btn_w);
+            if (ImGui::Button("Browse", ImVec2(btn_w, 0))) {
                 char title[96];
                 std::snprintf(title, sizeof(title), "Select %s (.cue/.bin/.car)",
                               launcher_model_disc_label(m, i));
                 request_disc_slot_picker(m, i, title, patterns, pattern_count,
                                          pattern_desc, true);
             }
-            ImGui::PopStyleVar();
         }
         ImGui::PopID();
     }
     ImGui::EndChild();
 
-    /* Sets are usually stored with the disc number in the path, so one browse
-     * is normally enough. Offered rather than automatic: it binds paths the
-     * player did not choose, and a wrong guess that appears without being
-     * asked for is worse than a button that was not pressed. */
+    /* Sets almost always carry the disc number in the path, so one browse is
+     * normally enough. Offered rather than automatic: it binds paths the player
+     * did not choose, and a wrong guess that appears unasked-for is worse than
+     * a button that was not pressed. */
     const bool can_autofill = ready > 0 && ready < count;
     ImGui::BeginDisabled(!can_autofill);
     if (ImGui::Button("Find other discs", ImVec2(px(150), px(28)))) {
@@ -7939,18 +7959,6 @@ static void draw_setup_disc_frame(LauncherModel* m, const LauncherTheme& th,
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered() && !can_autofill && ready == 0)
         ImGui::SetTooltip("Pick one disc first, then this looks for the rest.");
-    ImGui::SameLine();
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextColored(col(th.text_muted),
-                       "Only %s is required now; the rest can wait.",
-                       launcher_model_disc_label(m, 0));
-
-    /* Verdict describes the MOUNTED disc, so it is drawn once for the set, not
-     * once per row -- and it already carries the Disc Selection dropdown that
-     * says which disc that is. */
-    if (sel >= 0 && m->profile && m->profile->verify.mode == 1)
-        draw_verdict_block(m, th, ImGui::GetContentRegionAvail().x);
-    (void)noun;
 }
 
 void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
@@ -8165,14 +8173,13 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
         ImGui::TextColored(col(th.accent), "Setup required");
         ImGui::PushTextWrapPos(wrap_x);
         if (plat == SETUP_PLAT_PSX && m->has_bios) {
+            /* The BIOS and disc sections below each answer this for themselves,
+             * so a paragraph restating both only pushes the controls off a
+             * fixed-height modal. The detail it used to carry lives behind the
+             * disc section's (?). */
             ImGui::TextColored(col(th.text_muted),
-                "%s needs a playable %s before you can launch. This build includes "
-                "a bundled BIOS (OpenBIOS) by default. Setup also looks for a "
-                "retail SCPH1001.BIN beside the install and uses it when found; "
-                "otherwise OpenBIOS stays selected. Use a Redump-style .cue with "
-                "sibling .bin tracks (.iso is not accepted). Pick your %s below "
-                "(you must legally own these dumps).",
-                game, noun, noun);
+                "%s needs a %s to launch. You must legally own the dumps.",
+                game, noun);
         } else if (plat == SETUP_PLAT_GBA && m->has_bios) {
             ImGui::TextColored(col(th.text_muted),
                 "%s needs a Game Boy Advance BIOS dump and a playable %s before "
@@ -8211,9 +8218,8 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
                   "300c20df… — dumped from a Game Boy Advance). Setup packages "
                   "do not ship a redistributable GBA BIOS."
             : (plat == SETUP_PLAT_PSX)
-                ? "Default: bundled OpenBIOS. Setup auto-selects SCPH1001.BIN "
-                  "if it finds a validated dump beside the install; otherwise "
-                  "browse for your own (exactly 512 KB)."
+                ? "Optional \u2014 OpenBIOS is used unless you browse for a "
+                  "retail dump (exactly 512 KB)."
                 : "Browse for a BIOS image required by this console.";
         const char* empty_bios_label =
             offers_bundled ? "OpenBIOS" : "(none selected)";
@@ -8275,7 +8281,8 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
         "Always point Generate at the .cue when one exists.";
 
     if (multi_disc)
-        ImGui::Text("%s. %s images", m->has_bios ? "2" : "1", noun);
+        ImGui::Text("%s. Disc images (%d)", m->has_bios ? "2" : "1",
+                    launcher_model_disc_count(m));
     else
         ImGui::Text("%s. %s image", m->has_bios ? "2" : "1", noun);
     ImGui::PushTextWrapPos(wrap_x);
@@ -8283,7 +8290,7 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
         ImGui::PopTextWrapPos();
         static const char* kDiscPatterns[] = {"*.cue", "*.bin", "*.img",
                                               "*.iso", "*.car"};
-        draw_setup_disc_frame(m, th, noun, kDiscPatterns, 5,
+        draw_setup_disc_frame(m, th, kDiscPatterns, 5,
                               "Disc image (.cue .bin .img .iso .car)",
                               kPsxDiscNote);
         ImGui::PushTextWrapPos(wrap_x);

@@ -617,6 +617,11 @@ void launcher_model_select_disc(LauncherModel* m, int idx);
 // rebinds the ROM (and so re-runs verification), because for that slot the two
 // are the same fact. An empty/NULL path clears the slot.
 void launcher_model_set_disc_path(LauncherModel* m, int idx, const char* path);
+// File NAME (no directory) the project was BUILT from for this slot, or "" when
+// the host published no path. The developer's absolute path is meaningless on a
+// player's machine, but the file name is exactly what they are looking for, so
+// the wizard shows it as the hint for an unlocated disc.
+const char* launcher_model_disc_suggested_name(const LauncherModel* m, int idx);
 // True when slot idx has a path that exists on disk.
 bool launcher_model_disc_ready(const LauncherModel* m, int idx);
 // How many slots are ready — the "N of M selected" counter.
