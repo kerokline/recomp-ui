@@ -1319,6 +1319,11 @@ void launcher_model_toggle_spu_hq(LauncherModel* m) {
     m->s.spu_hq = !m->s.spu_hq;
 }
 
+void launcher_model_toggle_rewind_enabled(LauncherModel* m) {
+    if (!m || !m->has_rewind_depth) return;
+    m->s.rewind_enabled = !m->s.rewind_enabled;
+}
+
 void launcher_model_cycle_rewind_depth(LauncherModel* m) {
     if (!m || !m->has_rewind_depth) return;
     static const int opts[4] = {50, 100, 150, 200};
