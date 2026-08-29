@@ -2079,15 +2079,31 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
     {
         const SystemProfile* aprof = (const SystemProfile*)m->profile;
         const bool has_swap_art = aprof && aprof->controller.image_analog != nullptr;
-        // Show the digital pad ONLY for a game LOCKED to D-Pad mode. pad_mode
-        // selects which controller PROTOCOL the game is given, not which
-        // hardware the player is holding: on a title that offers analog at all,
-        // the player has an analog-capable pad in hand, and picking D-Pad mode
-        // does not turn their DualShock into a 1994 digital controller. Keying
-        // the art off the mode made Ape Escape — a dual-analog game — show the
-        // original PSX pad whenever the saved mode happened to be digital.
-        const bool digital_only = !m->pad_mode_selectable && m->locked_pad_mode == 2;
-        const bool digital = has_swap_art && digital_only;
+        // The art follows the SELECTED mode. The Analog / D-Pad pair right
+        // below this image is a two-state control with no other feedback, so
+        // the pad picture is the answer to "which did I just pick?" — leaving
+        // it on the DualShock while D-Pad is lit reads as a broken control.
+        //
+        // This deliberately replaces the earlier rule (art keyed only to a
+        // game LOCKED to D-Pad, on the reasoning that mode picks a PROTOCOL
+        // and the player is still physically holding a DualShock). Owner
+        // decision: the selector's feedback value wins.
+        //
+        // s.pad_mode already carries the locked value for a non-selectable
+        // title (launcher_model_init), so a locked D-Pad game keeps exactly
+        // the art it showed before. Mode 2 is D-Pad; 1 Analog, 0 Hybrid — both
+        // of those are stick-bearing pads and keep the analog image. A console
+        // with its own mode vocabulary (Genesis 3/6-Button) never reaches here:
+        // it ships a single pad image, so has_swap_art is false.
+        //
+        // Keyboard is digital at runtime whatever the stored mode says (the
+        // Analog segment is greyed out for it), so it shows the digital pad
+        // rather than promising sticks the player does not have.
+        const bool kb_digital =
+            m->s.player_src[p] == 1 &&
+            !(aprof && aprof->controller.modes && aprof->controller.mode_count > 0);
+        const bool digital =
+            has_swap_art && (kb_digital || m->s.pad_mode[p] == 2);
         const LauncherTexture& art = has_swap_art
             ? (digital ? g_pad_digital : g_pad_analog) : g_pad;
         // Center on the FITTED width so a near-square pad (N64) or a portrait
