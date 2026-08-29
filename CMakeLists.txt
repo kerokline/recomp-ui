@@ -28,11 +28,11 @@ if(SNESRECOMP_SDL_BACKEND STREQUAL "SDL3")
     find_package(SDL3 CONFIG REQUIRED)
     set(RUI_SDL_TARGET SDL3::SDL3)
     # Any target that compiles a header off the launcher_platform.h chain needs
-    # this, or that header falls through to <SDL.h> -- the SDL2 include layout --
-    # and fails to compile against SDL3. recomp_target_launcher_ui() sets it for
-    # the launcher; standalone targets that only link RUI_SDL_TARGET must be
-    # given it explicitly.
-    set(RUI_SDL_DEFS LNG_SDL3=1)
+    # these, or that header falls through to <SDL.h> -- the SDL2 include layout --
+    # and SDL_main's WinMain shim can rewrite standalone test entry points.
+    # recomp_target_launcher_ui() sets the launcher up; standalone targets that
+    # only link RUI_SDL_TARGET must be given the same contract explicitly.
+    set(RUI_SDL_DEFS LNG_SDL3=1 SDL_MAIN_HANDLED=1)
     if(TARGET SDL3::SDL3-shared)
         set(RUI_SDL_RUNTIME_TARGET SDL3::SDL3-shared)
     endif()
