@@ -83,6 +83,65 @@
 
 extern "C" const char* launcher_backend_name(void) { return "Dear ImGui"; }
 
+#if defined(RECOMP_UI_LANG_IT)
+static const char* ui_text(const char* en) {
+    static const std::unordered_map<std::string, const char*> kItalian = {
+        {"Settings", "Impostazioni"},
+        {"Mods", "Mod"},
+        {"Assist Tools", "Strumenti"},
+        {"Credits", "Crediti"},
+        {"< Back", "< Indietro"},
+        {"Set player name", "Imposta nome giocatore"},
+        {"Install", "Installa"},
+        {"Install Mod Package", "Installa pacchetto mod"},
+        {"Package installed. Changes apply when you press PLAY.",
+         "Pacchetto installato. Le modifiche si applicano premendo GIOCA."},
+        {"Enable all", "Abilita tutto"},
+        {"Disable all", "Disabilita tutto"},
+        {"Enable every installed mod feature",
+         "Abilita tutte le funzioni mod installate"},
+        {"Disable every installed mod feature",
+         "Disabilita tutte le funzioni mod installate"},
+        {"Search features, groups, packages...",
+         "Cerca funzioni, gruppi, pacchetti..."},
+        {"General", "Generale"},
+        {"No matching features.", "Nessuna funzione corrispondente."},
+        {"No mod features installed.", "Nessuna funzione mod installata."},
+        {"Disable", "Disabilita"},
+        {"Enable", "Abilita"},
+        {"From", "Da"},
+        {"Source: ", "Origine: "},
+        {"Project page", "Pagina progetto"},
+        {"3D camera controls", "Controlli camera 3D"},
+        {"This mod adds live camera input. Review the current right-stick and keyboard bindings before playing.",
+         "Questa mod aggiunge input camera in tempo reale. Controlla i binding dello stick destro e della tastiera prima di giocare."},
+        {"Enable this feature to expose its camera bindings on the Controller page.",
+         "Abilita questa funzione per mostrare i binding camera nella pagina Controller."},
+        {"Review Camera Bindings", "Controlla binding camera"},
+        {"Required owner files", "File richiesti"},
+        {"Not selected", "Non selezionato"},
+        {"Change folder", "Cambia cartella"},
+        {"Change file", "Cambia file"},
+        {"Select folder", "Seleziona cartella"},
+        {"Select file", "Seleziona file"},
+        {"Configuration", "Configurazione"},
+        {"Install or select a feature to configure it.",
+         "Installa o seleziona una funzione da configurare."},
+        {"Skip launcher on boot", "Salta launcher all'avvio"},
+        {"Restore Defaults", "Ripristina predefiniti"},
+        {"Host Lobby", "Ospita lobby"},
+        {"Network Settings", "Impostazioni rete"},
+        {"Refresh", "Aggiorna"},
+        {"Join Direct", "Connessione diretta"},
+        {"Actions##np_footer", "Azioni##np_footer"},
+    };
+    const auto found = kItalian.find(en);
+    return found == kItalian.end() ? en : found->second;
+}
+#else
+static const char* ui_text(const char* en) { return en; }
+#endif
+
 struct ShaderPresetEntry {
     std::string label;
     std::string path;
@@ -6650,13 +6709,13 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
     char install_label[96];
     char archive_pattern[64];
     std::snprintf(install_label, sizeof(install_label),
-                  "Install %s", archive_extension);
+                  "%s %s", ui_text("Install"), archive_extension);
     std::snprintf(archive_pattern, sizeof(archive_pattern),
                   "*%s", archive_extension);
     if (ImGui::Button(install_label)) {
         const char* patterns[] = { archive_pattern };
         char path[1024];
-        if (launcher_pick_file("Install Mod Package", patterns, 1,
+        if (launcher_pick_file(ui_text("Install Mod Package"), patterns, 1,
                                archive_description,
                                path, sizeof(path))) {
             if (!mods->install_archive || !mods->install_archive(mods->ctx, path))
@@ -7096,23 +7155,23 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                 mod_note_error(m);
             } else {
                 std::snprintf(m->mod_status, sizeof(m->mod_status),
-                              "Package installed. Changes apply when you press PLAY.");
+                              "%s", ui_text("Package installed. Changes apply when you press PLAY."));
             }
         }
     }
     ImGui::SameLine();
-    if (ImGui::Button("Enable all"))
+    if (ImGui::Button(ui_text("Enable all")))
         set_all_mod_features(m, true);
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Enable every installed mod feature");
+        ImGui::SetTooltip("%s", ui_text("Enable every installed mod feature"));
     ImGui::SameLine();
-    if (ImGui::Button("Disable all"))
+    if (ImGui::Button(ui_text("Disable all")))
         set_all_mod_features(m, false);
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Disable every installed mod feature");
+        ImGui::SetTooltip("%s", ui_text("Disable every installed mod feature"));
     ImGui::SameLine();
     ImGui::SetNextItemWidth(px(300));
-    ImGui::InputTextWithHint("##mod_search", "Search features, groups, packages...",
+    ImGui::InputTextWithHint("##mod_search", ui_text("Search features, groups, packages..."),
                              m->mod_search, sizeof(m->mod_search));
     if (m->mod_status[0]) {
         ImGui::PushStyleColor(ImGuiCol_Text, col(th.warn));
@@ -7148,7 +7207,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
         size_t first = 0;
         while (first < visible_features.size()) {
             const char* raw_group = visible_features[first].feature.group;
-            const char* group = raw_group[0] ? raw_group : "General";
+            const char* group = raw_group[0] ? raw_group : ui_text("General");
             size_t last = first + 1;
             while (last < visible_features.size()) {
                 const char* candidate = visible_features[last].feature.group;
@@ -7177,7 +7236,8 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                         }
                     }
                     if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("%s %s", enabled ? "Disable" : "Enable",
+                        ImGui::SetTooltip("%s %s",
+                                          enabled ? ui_text("Disable") : ui_text("Enable"),
                                           feature.name);
                     ImGui::SameLine();
                     if (feature.has_error) {
@@ -7208,8 +7268,9 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
         }
         if (visible_features.empty()) {
             ImGui::TextColored(col(th.text_muted),
-                               feature_count ? "No matching features."
-                                             : "No mod features installed.");
+                               "%s",
+                               feature_count ? ui_text("No matching features.")
+                                             : ui_text("No mod features installed."));
         }
     }
     ImGui::EndChild();
@@ -7226,7 +7287,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                 ImGui::TextColored(col(th.text_muted), "%s", feature.group);
             }
             ImGui::TextColored(
-                col(th.text_muted), "From %s%s%s",
+                col(th.text_muted), "%s %s%s%s", ui_text("From"),
                 feature.package_name[0] ? feature.package_name
                                         : feature.package_id,
                 feature.package_version[0] ? " " : "",
@@ -7236,10 +7297,10 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                     feature.author, feature.author_links,
                     feature.author_link_count, th);
             if (feature.source_url[0]) {
-                ImGui::TextColored(col(th.text_muted), "Source: ");
+                ImGui::TextColored(col(th.text_muted), "%s", ui_text("Source: "));
                 ImGui::SameLine(0, 0);
                 ImGui::TextLinkOpenURL(
-                    feature.source_name[0] ? feature.source_name : "Project page",
+                    feature.source_name[0] ? feature.source_name : ui_text("Project page"),
                     feature.source_url);
             }
             if (feature.description[0])
@@ -7249,15 +7310,14 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
             if (feature.camera_controls) {
                 ImGui::Separator();
                 ImGui::Spacing();
-                ImGui::TextColored(col(th.accent), "3D camera controls");
+                ImGui::TextColored(col(th.accent), "%s", ui_text("3D camera controls"));
                 ImGui::TextWrapped(
+                    "%s",
                     feature.enabled
-                        ? "This mod adds live camera input. Review the current "
-                          "right-stick and keyboard bindings before playing."
-                        : "Enable this feature to expose its camera bindings "
-                          "on the Controller page.");
+                        ? ui_text("This mod adds live camera input. Review the current right-stick and keyboard bindings before playing.")
+                        : ui_text("Enable this feature to expose its camera bindings on the Controller page."));
                 if (feature.enabled &&
-                    ImGui::Button("Review Camera Bindings")) {
+                    ImGui::Button(ui_text("Review Camera Bindings"))) {
                     launcher_model_open_config(m, 0);
                 }
                 ImGui::Spacing();
@@ -7274,7 +7334,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                     ImGui::Spacing();
                     ImGui::Separator();
                     ImGui::Spacing();
-                    ImGui::TextColored(col(th.accent), "Required owner files");
+                    ImGui::TextColored(col(th.accent), "%s", ui_text("Required owner files"));
                     for (int resource_index = 0;
                          resource_index < resource_count; ++resource_index) {
                         RecompLauncherCModResource resource{};
@@ -7289,7 +7349,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                         ImGui::TextColored(
                             resource.verified ? col(th.accent2) : col(th.warn),
                             "%s", resource.status[0]
-                                      ? resource.status : "Not selected");
+                                      ? resource.status : ui_text("Not selected"));
                         if (resource.path[0]) {
                             const char* basename = resource.path;
                             for (const char* p = resource.path; *p; ++p)
@@ -7303,10 +7363,10 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                             std::strcmp(resource.format, "folder") == 0;
                         if (ImGui::Button(
                                 resource.path[0]
-                                    ? (directory_resource ? "Change folder"
-                                                          : "Change file")
-                                    : (directory_resource ? "Select folder"
-                                                          : "Select file"))) {
+                                    ? (directory_resource ? ui_text("Change folder")
+                                                          : ui_text("Change file"))
+                                    : (directory_resource ? ui_text("Select folder")
+                                                          : ui_text("Select file")))) {
                             std::vector<std::string> owned_patterns;
                             std::vector<const char*> patterns;
                             std::string remaining = resource.file_patterns;
@@ -7372,7 +7432,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                     ImGui::Spacing();
                     ImGui::TextColored(
                         col(th.accent), "%s",
-                        last_group.empty() ? "Configuration"
+                        last_group.empty() ? ui_text("Configuration")
                                            : last_group.c_str());
                     ImGui::Separator();
                 }
@@ -7380,7 +7440,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
             }
         } else {
             ImGui::TextColored(col(th.text_muted),
-                               "Install or select a feature to configure it.");
+                               "%s", ui_text("Install or select a feature to configure it."));
         }
     }
     ImGui::EndChild();
@@ -7533,13 +7593,13 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     if (m->view == LNG_VIEW_DASHBOARD) {
         bool skip = m->s.skip_launcher != 0;
         ImGui::SetCursorScreenPos(ImVec2(origin.x, cta_y + (play_h - ImGui::GetFrameHeight()) * 0.5f));
-        if (ImGui::Checkbox("Skip launcher on boot", &skip))
+        if (ImGui::Checkbox(ui_text("Skip launcher on boot"), &skip))
             launcher_model_request_skip_toggle(m);
     } else if (m->view == LNG_VIEW_SETTINGS &&
                launcher_model_can_restore_defaults(m)) {
         ImGui::SetCursorScreenPos(
             ImVec2(origin.x, cta_y + (play_h - px(34.0f)) * 0.5f));
-        if (ImGui::Button("Restore Defaults", ImVec2(px(150.0f), px(34.0f))))
+        if (ImGui::Button(ui_text("Restore Defaults"), ImVec2(px(150.0f), px(34.0f))))
             launcher_model_request_restore_defaults(m);
     }
     if (m->view == LNG_VIEW_NETPLAY) {
@@ -7583,25 +7643,25 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
 
         if (!compact) {
             ImGui::SetCursorScreenPos(ImVec2(origin.x, cta_y));
-            if (ImGui::Button("Host Lobby", ImVec2(action_w, play_h)))
+            if (ImGui::Button(ui_text("Host Lobby"), ImVec2(action_w, play_h)))
                 open_host();
             ImGui::SetCursorScreenPos(ImVec2(origin.x + action_w + gap, cta_y));
-            if (ImGui::Button("Network Settings", ImVec2(settings_w, play_h)))
+            if (ImGui::Button(ui_text("Network Settings"), ImVec2(settings_w, play_h)))
                 open_network();
             ImGui::SetCursorScreenPos(
                 ImVec2(origin.x + action_w + gap + settings_w + gap, cta_y));
-            if (ImGui::Button("Refresh", ImVec2(refresh_w, play_h)))
+            if (ImGui::Button(ui_text("Refresh"), ImVec2(refresh_w, play_h)))
                 np_refresh_lobby_list(m);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Reload server lobbies and rescan LAN/Direct IP");
             ImGui::SetCursorScreenPos(ImVec2(origin.x + fullw - action_w, cta_y));
-            if (ImGui::Button("Join Direct", ImVec2(action_w, play_h)))
+            if (ImGui::Button(ui_text("Join Direct"), ImVec2(action_w, play_h)))
                 m->netplay_direct_modal_open = true;
         } else {
             /* Narrow window: collapse into a scrollable Actions menu. */
             const float menu_btn_w = px(160.0f);
             ImGui::SetCursorScreenPos(ImVec2(origin.x, cta_y));
-            if (ImGui::Button("Actions##np_footer", ImVec2(menu_btn_w, play_h)))
+            if (ImGui::Button(ui_text("Actions##np_footer"), ImVec2(menu_btn_w, play_h)))
                 ImGui::OpenPopup("##netplay_footer_menu");
             if (ImGui::BeginPopup("##netplay_footer_menu")) {
                 const float menu_w = px(220.0f);
@@ -7609,19 +7669,19 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
                 if (ImGui::BeginChild("##np_footer_scroll", ImVec2(menu_w, menu_h),
                                       ImGuiChildFlags_None,
                                       ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
-                    if (ImGui::Selectable("Host Lobby")) {
+                    if (ImGui::Selectable(ui_text("Host Lobby"))) {
                         open_host();
                     }
-                    if (ImGui::Selectable("Network Settings")) {
+                    if (ImGui::Selectable(ui_text("Network Settings"))) {
                         open_network();
                     }
-                    if (ImGui::Selectable("Refresh")) {
+                    if (ImGui::Selectable(ui_text("Refresh"))) {
                         np_refresh_lobby_list(m);
                     }
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip(
                             "Reload server lobbies and rescan LAN/Direct IP");
-                    if (ImGui::Selectable("Join Direct")) {
+                    if (ImGui::Selectable(ui_text("Join Direct"))) {
                         m->netplay_direct_modal_open = true;
                     }
                 }
@@ -8817,21 +8877,21 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
             const float w = px(110.0f);
             const float total = w * count + gap * (count - 1);
             ImGui::SetCursorPos(ImVec2(right - total, y));
-            if (ImGui::Button("Settings", ImVec2(w, px(34))))
+            if (ImGui::Button(ui_text("Settings"), ImVec2(w, px(34))))
                 launcher_model_set_view(m, LNG_VIEW_SETTINGS);
             if (m->mods) {
                 ImGui::SameLine(0, gap);
-                if (ImGui::Button("Mods", ImVec2(w, px(34))))
+                if (ImGui::Button(ui_text("Mods"), ImVec2(w, px(34))))
                     launcher_model_set_view(m, LNG_VIEW_MODS);
             }
             if (m->has_assist_tools) {
                 ImGui::SameLine(0, gap);
-                if (ImGui::Button("Assist Tools", ImVec2(w, px(34))))
+                if (ImGui::Button(ui_text("Assist Tools"), ImVec2(w, px(34))))
                     launcher_model_set_view(m, LNG_VIEW_ASSIST_TOOLS);
             }
             if (m->credits_text && m->credits_text[0]) {
                 ImGui::SameLine(0, gap);
-                if (ImGui::Button("Credits", ImVec2(w, px(34))))
+                if (ImGui::Button(ui_text("Credits"), ImVec2(w, px(34))))
                     launcher_model_set_view(m, LNG_VIEW_CREDITS);
             }
         } else {
@@ -8840,7 +8900,7 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
             if (m->view == LNG_VIEW_NETPLAY && m->netplay_supported) {
                 ImGui::SetCursorPos(ImVec2(right - w - name_w - gap, y));
                 const char* player_label = m->s.netplay_player_name[0]
-                    ? m->s.netplay_player_name : "Set player name";
+                    ? m->s.netplay_player_name : ui_text("Set player name");
                 if (ImGui::Button(player_label, ImVec2(name_w, px(34)))) {
                     std::snprintf(m->netplay_name_edit,
                                   sizeof(m->netplay_name_edit), "%s",
@@ -8849,7 +8909,7 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
                 }
             }
             ImGui::SetCursorPos(ImVec2(right - w, y));
-            if (ImGui::Button("< Back", ImVec2(w, px(34))))
+            if (ImGui::Button(ui_text("< Back"), ImVec2(w, px(34))))
                 launcher_model_set_view(m, LNG_VIEW_DASHBOARD);
         }
         // Absolute placement prevents three dashboard buttons from mutating
