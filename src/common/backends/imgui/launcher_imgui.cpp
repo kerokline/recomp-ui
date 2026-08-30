@@ -196,7 +196,14 @@ static bool s_pad_nav_armed = false;
 
 char        g_pick_buf[512] = {};    // ROM picker result
 
-enum class BuiltinPickerKind { Rom, Bios, SetupToolchainZip };
+enum class BuiltinPickerKind { Rom, Bios, SetupToolchainZip, DiscSlot };
+
+/* Which disc row a DiscSlot browse is filling. Deliberately NOT a field of
+ * BuiltinRomPicker: open_builtin_file_picker default-constructs that struct,
+ * so anything stored there before the call is erased on the built-in-browser
+ * path while surviving on the native-dialog path -- a difference that would
+ * show up only on machines without a portal. */
+static int g_disc_slot_target = -1;
 
 struct BuiltinRomPicker {
     bool active = false;
@@ -318,6 +325,10 @@ static void apply_builtin_picker_selection(LauncherModel* m, const char* path) {
     } else if (g_rom_picker.kind == BuiltinPickerKind::SetupToolchainZip) {
         std::snprintf(m->setup_tc_zip, sizeof(m->setup_tc_zip), "%s", path);
         m->setup_error[0] = '\0';
+    } else if (g_rom_picker.kind == BuiltinPickerKind::DiscSlot) {
+        if (g_disc_slot_target >= 0)
+            launcher_model_set_disc_path(m, g_disc_slot_target, path);
+        g_disc_slot_target = -1;
     } else {
         launcher_model_set_rom(m, path);
     }
@@ -348,6 +359,18 @@ static void request_rom_picker(LauncherModel* m, const char* title,
                                const char* const* patterns, int pattern_count,
                                const char* description, bool from_setup) {
     request_file_picker(m, BuiltinPickerKind::Rom, title, patterns,
+                        pattern_count, description, from_setup);
+}
+
+/* Browse for ONE disc of a set. Binding is by slot, so filling in disc 3 does
+ * not change which disc is mounted (launcher_model_set_disc_path). */
+static void request_disc_slot_picker(LauncherModel* m, int slot,
+                                     const char* title,
+                                     const char* const* patterns,
+                                     int pattern_count, const char* description,
+                                     bool from_setup) {
+    g_disc_slot_target = slot;
+    request_file_picker(m, BuiltinPickerKind::DiscSlot, title, patterns,
                         pattern_count, description, from_setup);
 }
 
@@ -1020,6 +1043,31 @@ const LauncherTexture& verdict_texture(int verdict) {
     }
 }
 
+// Disc Selection dropdown for a multi-image title (GameInfo.discs). Draws
+// nothing at all for a single-image game, so every existing launcher keeps
+// its current layout. Selecting a row remounts that disc: the model re-runs
+// the disc verdict against it and records the choice in Settings.disc_index,
+// which the host persists like any other setting.
+void draw_disc_selector(LauncherModel* m, const LauncherTheme& th, float availw) {
+    const int count = launcher_model_disc_count(m);
+    if (count <= 1) return;
+    const int sel = launcher_model_disc_selected(m);
+
+    ImGui::TextColored(col(th.text_muted), "Disc Selection");
+    ImGui::Dummy(ImVec2(0, px(4)));
+    ImGui::SetNextItemWidth(availw);
+    if (ImGui::BeginCombo("##disc_selection",
+                          sel >= 0 ? launcher_model_disc_label(m, sel) : "")) {
+        for (int i = 0; i < count; ++i) {
+            if (ImGui::Selectable(launcher_model_disc_label(m, i), i == sel))
+                launcher_model_select_disc(m, i);
+            if (i == sel) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::Dummy(ImVec2(0, px(10)));
+}
+
 // Disc-verdict block (verify.mode==1 systems, e.g. PSX): a verdict icon +
 // headline, followed by a Serial/Region/ISO-header checklist. Replaces the
 // CRC/SHA "verified" line that mode==0 (cart/ROM-hash) systems draw instead
@@ -1027,7 +1075,7 @@ const LauncherTexture& verdict_texture(int verdict) {
 // m->verify, populated by launcher_model_set_rom()/run_verify() in
 // launcher_model.c (real probe when the SystemProfile has one, a synthesized
 // placeholder verdict otherwise).
-void draw_verdict_block(const LauncherModel* m, const LauncherTheme& th, float availw) {
+void draw_verdict_block(LauncherModel* m, const LauncherTheme& th, float availw) {
     const VerifyResult& v = m->verify;
     // Keep the Serial/Region/ISO checklist mounted even before a disc is
     // picked (setup wizard) so AutoResize modals don't jump when verify runs.
@@ -1064,6 +1112,13 @@ void draw_verdict_block(const LauncherModel* m, const LauncherTheme& th, float a
     ImGui::SameLine(0, px(6));
     ImGui::TextColored(col(headline_color), "%s", headline);
     ImGui::Dummy(ImVec2(0, px(8)));
+
+    // Disc Selection: which image of a multi-disc set Play boots. It sits
+    // ABOVE the identity checklist on purpose — Serial / Region / ISO header
+    // describe the SELECTED disc (each disc of a set carries its own serial),
+    // so the control that decides which disc that is has to read first.
+    // Single-disc titles never compose this.
+    draw_disc_selector(m, th, availw);
 
     // Checklist: Serial / Region / ISO header. Before a disc is chosen, show
     // em-dashes with no pass/fail marks so the layout still reserves the rows.
@@ -1119,6 +1174,8 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
         // + Change ROM, plus the SAVES block when this game has battery SRAM.
         float reserve = px(198.0f);
         if (disc_verdict) reserve += px(120.0f);          // taller: icon+headline + tracks row
+        // Disc Selection label + combo + spacing, for a multi-image title.
+        if (launcher_model_disc_count(m) > 1) reserve += px(62.0f);
         if (m->saves_supported) reserve += px(96.0f);    // compact SAVES row below Change ROM
         if (m->password_save_path) reserve += px(96.0f); // password-save row (same footprint)
         if (m->msu1_patch_available) reserve += px(198.0f);  // MSU-1 patch-available sub-block
@@ -1164,8 +1221,22 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
         ImGui::EndTable();
     }
     ImGui::Dummy(ImVec2(0, px(12)));
-    char change_label[32];
-    snprintf(change_label, sizeof(change_label), "Change %s", noun);
+    // "Browse For Disc 2", not "Change Disc": on a multi-disc set the button
+    // does not swap which disc the game is on — the Disc Selection dropdown
+    // above does that — it re-points the SELECTED disc at a file on this
+    // machine. Naming the disc number is what keeps those two apart. A
+    // single-image title has nothing to number, so it reads "Browse For Disc"
+    // ("Browse For ROM" on cartridge consoles, from the profile's rom_noun).
+    const int disc_no = launcher_model_disc_count(m) > 1
+                            ? launcher_model_disc_number(
+                                  m, launcher_model_disc_selected(m))
+                            : 0;
+    char change_label[48];
+    if (disc_no > 0)
+        snprintf(change_label, sizeof(change_label), "Browse For %s %d", noun,
+                 disc_no);
+    else
+        snprintf(change_label, sizeof(change_label), "Browse For %s", noun);
     if (ImGui::Button(change_label, ImVec2(availw, px(34)))) {
         // Native file dialog filter comes from the active console's
         // SystemProfile.rom_filter — never a hardcoded per-system set. Every
@@ -1174,8 +1245,11 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
         // forgets rom_filter degrades to "any file" rather than prompting for
         // some other machine's media.
         const SystemProfile* prof = (const SystemProfile*)m->profile;
-        char title[48];
-        snprintf(title, sizeof(title), "Select %s", noun);
+        char title[64];
+        if (disc_no > 0)
+            snprintf(title, sizeof(title), "Select %s %d", noun, disc_no);
+        else
+            snprintf(title, sizeof(title), "Select %s", noun);
         if (prof && prof->rom_filter.patterns && prof->rom_filter.pattern_count > 0)
             request_rom_picker(m, title, prof->rom_filter.patterns,
                                prof->rom_filter.pattern_count,
@@ -2028,15 +2102,31 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
     {
         const SystemProfile* aprof = (const SystemProfile*)m->profile;
         const bool has_swap_art = aprof && aprof->controller.image_analog != nullptr;
-        // Show the digital pad ONLY for a game LOCKED to D-Pad mode. pad_mode
-        // selects which controller PROTOCOL the game is given, not which
-        // hardware the player is holding: on a title that offers analog at all,
-        // the player has an analog-capable pad in hand, and picking D-Pad mode
-        // does not turn their DualShock into a 1994 digital controller. Keying
-        // the art off the mode made Ape Escape — a dual-analog game — show the
-        // original PSX pad whenever the saved mode happened to be digital.
-        const bool digital_only = !m->pad_mode_selectable && m->locked_pad_mode == 2;
-        const bool digital = has_swap_art && digital_only;
+        // The art follows the SELECTED mode. The Analog / D-Pad pair right
+        // below this image is a two-state control with no other feedback, so
+        // the pad picture is the answer to "which did I just pick?" — leaving
+        // it on the DualShock while D-Pad is lit reads as a broken control.
+        //
+        // This deliberately replaces the earlier rule (art keyed only to a
+        // game LOCKED to D-Pad, on the reasoning that mode picks a PROTOCOL
+        // and the player is still physically holding a DualShock). Owner
+        // decision: the selector's feedback value wins.
+        //
+        // s.pad_mode already carries the locked value for a non-selectable
+        // title (launcher_model_init), so a locked D-Pad game keeps exactly
+        // the art it showed before. Mode 2 is D-Pad; 1 Analog, 0 Hybrid — both
+        // of those are stick-bearing pads and keep the analog image. A console
+        // with its own mode vocabulary (Genesis 3/6-Button) never reaches here:
+        // it ships a single pad image, so has_swap_art is false.
+        //
+        // Keyboard is digital at runtime whatever the stored mode says (the
+        // Analog segment is greyed out for it), so it shows the digital pad
+        // rather than promising sticks the player does not have.
+        const bool kb_digital =
+            m->s.player_src[p] == 1 &&
+            !(aprof && aprof->controller.modes && aprof->controller.mode_count > 0);
+        const bool digital =
+            has_swap_art && (kb_digital || m->s.pad_mode[p] == 2);
         const LauncherTexture& art = has_swap_art
             ? (digital ? g_pad_digital : g_pad_analog) : g_pad;
         // Center on the FITTED width so a near-square pad (N64) or a portrait
@@ -7729,6 +7819,148 @@ static void draw_setup_progress_modal(LauncherModel* m, const LauncherTheme& th)
         ImGui::OpenPopup(kProgPopup);
 }
 
+/* A hover "?" that parks a long explanation off-screen until asked for.
+ * The wizard's disc note is the tallest block on the page and is read once,
+ * on a first run; the disc rows underneath it are read every time. */
+static void setup_help_marker(const LauncherTheme& th, const char* text) {
+    ImGui::TextColored(col(th.text_muted), "(?)");
+    if (ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+        ImGui::TextUnformatted(text);
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+}
+
+/* Multi-disc media section: one row per disc of the set, inside a single
+ * bordered frame.
+ *
+ * The wizard previously asked for one image, because persist_setup carried one
+ * path -- so a 3-disc set left the player to discover in the middle of disc 1's
+ * ending that discs 2 and 3 were never recorded. Asking for all of them up
+ * front is the fix; asking for them as three copies of the old full-height
+ * block is not, because the wizard is a fixed-height modal and three of those
+ * do not fit.
+ *
+ * So: the explanation collapses to a (?), the verdict block is drawn once for
+ * the set rather than once per disc, and each disc costs exactly one frame-high
+ * row. A 3-disc set is shorter here than the single-disc layout it replaces.
+ *
+ * Only disc 1 gates progress. Generate runs off the boot image, and discs 2..N
+ * matter later, at swap time -- blocking the wizard on all of them would strand
+ * a player who has disc 1 to hand and the rest in a drawer. */
+/* Multi-disc media section: one row per disc of the set, in one bordered frame.
+ *
+ * The wizard previously asked for one image, because persist_setup carried one
+ * path -- so a 3-disc set left the player to discover mid-game that discs 2 and
+ * 3 were never recorded. Asking for all of them is the fix; asking as N copies
+ * of the old full-height block is not, because the wizard is a fixed-height
+ * modal.
+ *
+ * A row is: "Disc N", the file, and Browse. There is deliberately no status
+ * column -- the path IS the status (a located disc shows its file, an unlocated
+ * one shows the greyed name to look for), and a separate OK/Needed column both
+ * repeated that and cost the width the path needed.
+ *
+ * Every disc is required. Building one disc at a time is not supported, so a
+ * partially located set cannot produce a working install and the wizard should
+ * not let one through.
+ */
+static void draw_setup_disc_frame(LauncherModel* m, const LauncherTheme& th,
+                                  const char* const* patterns,
+                                  int pattern_count, const char* pattern_desc,
+                                  const char* long_note) {
+    const int count = launcher_model_disc_count(m);
+    const int ready = launcher_model_discs_ready_count(m);
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(col(ready >= count ? th.good : th.warn),
+                       "%d of %d located", ready, count);
+    ImGui::SameLine();
+    ImGui::TextColored(col(th.text_muted), "- all discs are required.");
+    ImGui::SameLine();
+    setup_help_marker(th, long_note);
+
+    /* Size the frame to hold every row. Getting this wrong scrolls the last
+     * disc out of sight, which on a 3-disc set hides a required field. */
+    const float row_h = ImGui::GetFrameHeightWithSpacing();
+    const float pad = ImGui::GetStyle().WindowPadding.y * 2.0f;
+    ImGui::BeginChild("##setup_discs", ImVec2(0, row_h * (float)count + pad),
+                      true, ImGuiWindowFlags_NoScrollbar);
+    const float btn_w = px(88);
+    for (int i = 0; i < count; ++i) {
+        const bool ok = launcher_model_disc_ready(m, i);
+        const char* dp = launcher_model_disc_path(m, i);
+        ImGui::PushID(i);
+
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(col(th.text), "%s", launcher_model_disc_label(m, i));
+        ImGui::SameLine(px(72));
+
+        /* Reserve the button's column first so a long path is elided into the
+         * space that is actually left, instead of running under the button. */
+        const float row_w = ImGui::GetContentRegionAvail().x;
+        const float text_w = row_w - btn_w - px(12);
+
+        char elided[260];
+        ImGui::AlignTextToFramePadding();
+        if (ok) {
+            elide_left(dp, text_w, elided, sizeof(elided));
+            ImGui::TextColored(col(th.text), "%s", elided);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", dp);
+        } else {
+            /* Not located: show the file NAME the project was built from. It
+             * is the one useful hint we have -- the player is looking for their
+             * own copy of that image, and the developer's absolute path is
+             * meaningless on their machine while the file name is not. */
+            const char* hint = launcher_model_disc_suggested_name(m, i);
+            if (hint && hint[0]) {
+                elide_left(hint, text_w, elided, sizeof(elided));
+                ImGui::TextColored(col(th.text_muted), "%s", elided);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Look for a file named:\n%s", hint);
+            } else {
+                ImGui::TextColored(col(th.text_muted), "(not selected)");
+            }
+        }
+
+        ImGui::SameLine();
+        {
+            const float avail = ImGui::GetContentRegionAvail().x;
+            if (avail > btn_w)
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + avail - btn_w);
+            if (ImGui::Button("Browse", ImVec2(btn_w, 0))) {
+                char title[96];
+                std::snprintf(title, sizeof(title), "Select %s (.cue/.bin/.car)",
+                              launcher_model_disc_label(m, i));
+                request_disc_slot_picker(m, i, title, patterns, pattern_count,
+                                         pattern_desc, true);
+            }
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
+    /* Sets almost always carry the disc number in the path, so one browse is
+     * normally enough. Offered rather than automatic: it binds paths the player
+     * did not choose, and a wrong guess that appears unasked-for is worse than
+     * a button that was not pressed. */
+    const bool can_autofill = ready > 0 && ready < count;
+    ImGui::BeginDisabled(!can_autofill);
+    if (ImGui::Button("Find other discs", ImVec2(px(150), px(28)))) {
+        const int filled = launcher_model_autofill_sibling_discs(m);
+        std::snprintf(m->setup_status, sizeof(m->setup_status),
+                      filled > 0 ? "Located %d more disc image(s)."
+                                 : "No sibling disc images found next to the "
+                                   "one you picked -- browse for them.",
+                      filled);
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered() && !can_autofill && ready == 0)
+        ImGui::SetTooltip("Pick one disc first, then this looks for the rest.");
+}
+
 void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
     if (!m->setup_wizard_supported) return;
     if (!m->setup_wizard_open && !m->setup_preparing) return;
@@ -7941,14 +8173,13 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
         ImGui::TextColored(col(th.accent), "Setup required");
         ImGui::PushTextWrapPos(wrap_x);
         if (plat == SETUP_PLAT_PSX && m->has_bios) {
+            /* The BIOS and disc sections below each answer this for themselves,
+             * so a paragraph restating both only pushes the controls off a
+             * fixed-height modal. The detail it used to carry lives behind the
+             * disc section's (?). */
             ImGui::TextColored(col(th.text_muted),
-                "%s needs a playable %s before you can launch. This build includes "
-                "a bundled BIOS (OpenBIOS) by default. Setup also looks for a "
-                "retail SCPH1001.BIN beside the install and uses it when found; "
-                "otherwise OpenBIOS stays selected. Use a Redump-style .cue with "
-                "sibling .bin tracks (.iso is not accepted). Pick your %s below "
-                "(you must legally own these dumps).",
-                game, noun, noun);
+                "%s needs a %s to launch. You must legally own the dumps.",
+                game, noun);
         } else if (plat == SETUP_PLAT_GBA && m->has_bios) {
             ImGui::TextColored(col(th.text_muted),
                 "%s needs a Game Boy Advance BIOS dump and a playable %s before "
@@ -7987,9 +8218,8 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
                   "300c20df… — dumped from a Game Boy Advance). Setup packages "
                   "do not ship a redistributable GBA BIOS."
             : (plat == SETUP_PLAT_PSX)
-                ? "Default: bundled OpenBIOS. Setup auto-selects SCPH1001.BIN "
-                  "if it finds a validated dump beside the install; otherwise "
-                  "browse for your own (exactly 512 KB)."
+                ? "Optional \u2014 OpenBIOS is used unless you browse for a "
+                  "retail dump (exactly 512 KB)."
                 : "Browse for a BIOS image required by this console.";
         const char* empty_bios_label =
             offers_bundled ? "OpenBIOS" : "(none selected)";
@@ -8037,9 +8267,34 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
         ImGui::Dummy(ImVec2(0, px(12)));
     }
 
-    ImGui::Text("%s. %s image", m->has_bios ? "2" : "1", noun);
+    /* A multi-disc set asks for every image, in one compact frame, and parks the
+     * long note behind a (?). See draw_setup_disc_frame. */
+    const bool multi_disc = launcher_model_disc_count(m) > 1;
+    static const char* kPsxDiscNote =
+        "psxrecomp games require a .cue + .bin dump of the disc, or an "
+        "official re-release image (.car, e.g. from the Steam Special "
+        "Edition).\n\n"
+        "A single-track .bin or .iso cannot be converted to multitrack. "
+        "Redump-style dumps are the usual source; you can make your own from "
+        "the original disc with redumper "
+        "(https://github.com/superg/redumper).\n\n"
+        "Always point Generate at the .cue when one exists.";
+
+    if (multi_disc)
+        ImGui::Text("%s. Disc images (%d)", m->has_bios ? "2" : "1",
+                    launcher_model_disc_count(m));
+    else
+        ImGui::Text("%s. %s image", m->has_bios ? "2" : "1", noun);
     ImGui::PushTextWrapPos(wrap_x);
-    if (plat == SETUP_PLAT_PSX) {
+    if (multi_disc) {
+        ImGui::PopTextWrapPos();
+        static const char* kDiscPatterns[] = {"*.cue", "*.bin", "*.img",
+                                              "*.iso", "*.car"};
+        draw_setup_disc_frame(m, th, kDiscPatterns, 5,
+                              "Disc image (.cue .bin .img .iso .car)",
+                              kPsxDiscNote);
+        ImGui::PushTextWrapPos(wrap_x);
+    } else if (plat == SETUP_PLAT_PSX) {
         /* Keep the note as one wrapped TextColored block — SameLine +
          * TextLinkOpenURL after a wrapped line leaves a huge empty gap in
          * BeginPopupModal (Windows first-run wizard regression). */
@@ -8065,7 +8320,7 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
         ImGui::TextColored(col(th.text_muted), "%s", media_help);
     }
     ImGui::PopTextWrapPos();
-    {
+    if (!multi_disc) {
         const char* rp = m->rom_present ? m->rom_full : "(none selected)";
         char relided[220];
         elide_left(rp, px(360), relided, sizeof(relided));

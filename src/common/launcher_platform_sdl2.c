@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include "launcher_platform.h"
 #include "launcher_boot_timing.h"
+#include "launcher_gl.h"
 
 #include <stdio.h>
 
@@ -168,6 +169,29 @@ bool launcher_platform_open(LauncherPlatform* p, const char* title,
     launcher_platform_refresh_metrics(p);
     launcher_boot_timing_mark("rui:platform_open:window+gl_ready");
     return true;
+}
+
+void launcher_platform_set_icon(LauncherPlatform* p, const char* image_path) {
+    if (!p || !p->window || !image_path || !image_path[0]) return;
+    int w = 0, h = 0;
+    unsigned char* pixels = launcher_image_load_rgba(image_path, &w, &h);
+    if (!pixels) return;
+    /* SDL copies the pixels into its own icon storage, so the decoded buffer
+     * is ours to free as soon as SetWindowIcon returns. The channel masks are
+     * byte-order dependent: stb hands back R,G,B,A in memory order. */
+    SDL_Surface* surf = SDL_CreateRGBSurfaceFrom(
+        pixels, w, h, 32, w * 4,
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+        0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff
+#else
+        0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000
+#endif
+    );
+    if (surf) {
+        SDL_SetWindowIcon(p->window, surf);
+        SDL_FreeSurface(surf);
+    }
+    launcher_image_free(pixels);
 }
 
 void launcher_platform_refresh_metrics(LauncherPlatform* p) {

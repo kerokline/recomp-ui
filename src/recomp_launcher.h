@@ -768,6 +768,15 @@ struct RecompLauncherCSettings {
      * The ring holds whole-machine snapshots on a frame cadence, which is why
      * it is opt-in. Appended additively. */
     int  rewind_enabled;
+
+    /* ---- selected disc (GameInfo.discs titles) ---------------------------
+     * 1-based number of the disc the player has selected, so the choice is an
+     * ordinary persisted setting the host writes to its settings file
+     * alongside every other row here — which is what lets an external
+     * launcher manage it, and what makes the last-played disc come back next
+     * session. 0 = unset: the launcher seeds it by matching initial_rom
+     * against the roster, falling back to disc 1. Appended additively. */
+    int  disc_index;
 };
 
 /* Values for RecompLauncherCSettings.vsync (1-based; 0 = unset). */
@@ -836,6 +845,24 @@ typedef struct RecompLauncherCTpak {
     // 0 unknown/other (gray), 1 red, 2 blue, 3 yellow, 4 green.
     int  cart_kind;
 } RecompLauncherCTpak;
+
+// One image of a multi-image title, as the BUILD knows it. A PSX game built
+// from a 3-disc set publishes three of these, in disc order, and the launcher
+// renders a "Disc Selection" dropdown so the player picks which one Play
+// boots. This is the build's roster — the discs the game was compiled
+// against — not a scan of the player's folder; a player who moved one image
+// still browses for it, and that browse rebinds only the selected slot.
+typedef struct RecompLauncherCDisc {
+    // Disc number as printed on the media (1-based). 0 => use the array
+    // position + 1, so a host may leave this unset for an ordinary 1..N set.
+    int         number;
+    // Optional display name for the dropdown row. NULL/"" => the launcher
+    // shows "Disc <number>". Borrowed; must outlive the run_window call.
+    const char* label;
+    // The image the build was made against (a .cue where one exists).
+    // Borrowed; must outlive the run_window call.
+    const char* path;
+} RecompLauncherCDisc;
 
 typedef struct RecompLauncherCGameInfo {
     const char*    name;
@@ -1278,6 +1305,56 @@ typedef struct RecompLauncherCGameInfo {
     const char* rom_patch_note;
     const char* rom_patch_cache_dir;
     const char* rom_patch_required_sha1;
+
+    /* ---- multi-image titles (appended additively) ------------------------
+     * The roster of discs this build was made from, in disc order. When
+     * num_discs > 1 the game panel grows a "Disc Selection" dropdown above
+     * the identity checklist, the browse button names the selected disc
+     * ("Browse For Disc 2"), and Play boots whichever disc is selected —
+     * the chosen number rides back out in Settings.disc_index and the
+     * chosen path in out_rom_path. NULL/0 (every single-image title, and
+     * every host that predates this field) leaves the panel exactly as it
+     * is today apart from the button's verb. */
+    const RecompLauncherCDisc* discs;
+    int num_discs;
+
+    /* ---- window / taskbar icon (appended additively) ---------------------
+     * Path to the image the HOST's own runtime applies as its window icon
+     * (PNG/TGA/JPEG). The launcher applies the SAME file so the two windows
+     * are one product in the task switcher instead of the game carrying the
+     * real art and the launcher the toolkit's placeholder. The host resolves
+     * it rather than the launcher guessing, because the file's name and
+     * location are the host's convention.
+     *
+     * On Windows the executable's embedded .ico already covers the whole
+     * process, so this mainly matters on Linux and macOS -- but it is applied
+     * everywhere so the two windows can never disagree.
+     *
+     * NULL/"" (and every host that predates this field) leaves the launcher
+     * window with the toolkit default, exactly as before. Borrowed; must
+     * outlive the run_window call. */
+    const char* window_icon_path;
+
+    /* ---- multi-disc setup flush (appended additively) --------------------
+     * persist_setup carries ONE path, which is all a single-image title has.
+     * A multi-disc set needs every image the player located, not just the one
+     * the wizard happened to have selected -- otherwise the other discs are
+     * re-browsed on the next run, or worse, silently missing when the game
+     * asks for disc 2.
+     *
+     * When this is non-NULL and num_discs > 1, the launcher calls it INSTEAD
+     * of persist_setup after the wizard's picks are confirmed. disc_paths is
+     * disc-ordered with disc_count entries; a slot the player has not located
+     * is "" rather than NULL, so the host can still write a placeholder line
+     * and keep the file's disc ordering intact.
+     *
+     * Hosts that predate this field, and single-image titles, keep going
+     * through persist_setup unchanged -- so leaving this NULL is not a
+     * degraded path, it is the correct one for a one-disc game.
+     *
+     * Return 0 on success, like persist_setup. Uses persist_setup_ctx. */
+    int (*persist_setup_discs)(void* ctx, const char* const* disc_paths,
+                               int disc_count, const char* bios_path);
 } RecompLauncherCGameInfo;
 
 /* recomp_launcher_run_window return codes */

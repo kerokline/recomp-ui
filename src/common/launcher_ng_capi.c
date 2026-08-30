@@ -51,6 +51,11 @@ int recomp_launcher_run_window(const char* window_title,
         return RECOMP_LAUNCHER_RESULT_UNAVAILABLE;
     }
 
+    /* Same icon the host's game window carries — see GameInfo.window_icon_path.
+     * Applied before the model is built so the window is never briefly shown
+     * under the placeholder icon. */
+    launcher_platform_set_icon(&plat, game ? game->window_icon_path : NULL);
+
     LauncherModel model;
     launcher_model_init(&model, io, game, initial_rom);
     launcher_binds_load(&model, game ? game->config_path : NULL,
