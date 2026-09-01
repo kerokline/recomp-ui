@@ -757,6 +757,15 @@ struct RecompLauncherCSettings {
     char rom_patch_source_path[512];
     char rom_patch_sha1[41];
     char rom_patch_crc32[9];
+
+    /* Presentation frame blending (GameInfo.has_frame_blend consoles):
+     * average each presented frame with the previous one, so a game's
+     * alternate-frame flicker "transparency" (thrusters, explosions) reads
+     * as steady translucency instead of breaking up on a tear or on the
+     * duplicated frame a 60.00 Hz panel makes of the 60.0988 Hz guest.
+     * Costs half a frame of motion ghosting. 0 = off (the faithful
+     * default). Appended for ABI stability. */
+    int  frame_blend;
 };
 
 /* Values for RecompLauncherCSettings.vsync (1-based; 0 = unset). */
@@ -773,6 +782,9 @@ struct RecompLauncherCSettings {
 #define RECOMP_LAUNCHER_FMV_FILTER_COUNT    4
 /* Hosts can #ifdef on this to stay source-compatible with older recomp-ui. */
 #define RECOMP_LAUNCHER_HAS_FMV_FILTER 1
+
+/* Hosts can #ifdef on this to stay source-compatible with older recomp-ui. */
+#define RECOMP_LAUNCHER_HAS_FRAME_BLEND 1
 
 // ---- host verification/inspection results (filled by the callbacks below) ----
 // Plain-C structs so a host can implement the callbacks with zero launcher
@@ -1267,6 +1279,11 @@ typedef struct RecompLauncherCGameInfo {
     const char* rom_patch_note;
     const char* rom_patch_cache_dir;
     const char* rom_patch_required_sha1;
+
+    /* Display row (checkbox) for Settings.frame_blend. 0 => no row drawn,
+     * so a console that leaves this unset keeps exactly today's settings
+     * surface. Appended for ABI stability. */
+    int has_frame_blend;
 } RecompLauncherCGameInfo;
 
 /* recomp_launcher_run_window return codes */
