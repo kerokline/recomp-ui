@@ -2376,6 +2376,7 @@ static const char* elide_left(const char* s, float max_w, char* out, size_t cap)
 bool any_deep_display(const LauncherModel* m) {
     return m->has_window_size || m->has_renderer || m->has_supersampling ||
            m->has_antialiasing || m->has_texture_filter || m->has_screen_kind ||
+           m->has_scanlines ||
            m->has_fmv_filter ||
            m->has_frame_interp || m->has_skip_fmv ||
            m->has_geometry_precision ||
@@ -2703,6 +2704,30 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         // shorter models (e.g. "DMG") center within the same fixed box.
         if (ImGui::Button(ui_text(launcher_model_screen_kind_label(m)), ImVec2(px(220), px(30))))
             launcher_model_cycle_screen_kind(m);
+    }
+
+    // Scanlines: darken every other display line for a CRT look. Independent of
+    // the Screen model colour filter above — the two compose. The strength row
+    // only appears once it is on.
+    if (m->has_scanlines) {
+        row_label("Scanlines", th);
+        bool sl = m->s.scanlines != 0;
+        if (ImGui::Checkbox("##scanlines", &sl))
+            launcher_model_toggle_scanlines(m);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+            ImGui::SetTooltip("Darkens the gaps between display lines for a CRT "
+                              "look.\nApplied at the console's own scanline "
+                              "pitch; cleanest when the\nwindow is at least twice "
+                              "the console's line count tall.");
+        if (m->s.scanlines) {
+            row_label("Scanline strength", th);
+            int p = launcher_model_scanline_strength_pct(m);
+            ImGui::PushID("scanline_strength");
+            ImGui::SetNextItemWidth(px(150));
+            if (ImGui::SliderInt("##scanline_strength", &p, 1, 100, "%d%%"))
+                launcher_model_set_scanline_strength_pct(m, p);
+            ImGui::PopID();
+        }
     }
 
     // Frame interpolation is only meaningful under OpenGL (Software has no
