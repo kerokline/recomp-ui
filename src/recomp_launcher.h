@@ -47,6 +47,8 @@ extern "C" {
 #define RECOMP_LAUNCHER_HAS_REWIND_ENABLED 1
 /* Host may #ifdef this when reading Settings.vsync. */
 #define RECOMP_LAUNCHER_HAS_VSYNC 1
+/* Host may #ifdef this when reading Settings.virtual_stylus. */
+#define RECOMP_LAUNCHER_HAS_VIRTUAL_STYLUS 1
 #define RECOMP_LAUNCHER_MAX_BINDINGS 24
 #define RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS 8
 
@@ -803,6 +805,12 @@ struct RecompLauncherCSettings {
      * session. 0 = unset: the launcher seeds it by matching initial_rom
      * against the roster, falling back to disc 1. Appended additively. */
     int  disc_index;
+
+    /* NDS virtual stylus overlay. 0 is unset and means the launcher default
+     * for the console, which is enabled; 1 is explicitly enabled, -1 is
+     * explicitly disabled. Bindings live in assist_key_bind/assist_pad_bind so
+     * they appear in the Controller page with the rest of host-owned binds. */
+    int  virtual_stylus;
 };
 
 /* Values for RecompLauncherCSettings.vsync (1-based; 0 = unset). */
@@ -1381,6 +1389,10 @@ typedef struct RecompLauncherCGameInfo {
      * Return 0 on success, like persist_setup. Uses persist_setup_ctx. */
     int (*persist_setup_discs)(void* ctx, const char* const* disc_paths,
                                int disc_count, const char* bios_path);
+
+    /* NDS input convenience setting. When set, Settings shows a Virtual Stylus
+     * opt-out and the Controller page may expose host-owned bindings for it. */
+    int has_virtual_stylus;
 } RecompLauncherCGameInfo;
 
 /* recomp_launcher_run_window return codes */

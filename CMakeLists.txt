@@ -185,6 +185,14 @@ if(BUILD_TESTING)
         NAME recomp-ui-psx-profile
         COMMAND $<TARGET_FILE:recomp-ui-psx-profile-test>)
 
+    add_executable(recomp-ui-nds-profile-test
+        tests/nds_profile_test.c)
+    target_include_directories(recomp-ui-nds-profile-test PRIVATE
+        src src/common src/consoles/nds)
+    add_test(
+        NAME recomp-ui-nds-profile
+        COMMAND $<TARGET_FILE:recomp-ui-nds-profile-test>)
+
     add_executable(recomp-runtime-ui-imgui-test
         tests/runtime_ui_imgui_test.cpp
         src/common/recomp_runtime_ui.c

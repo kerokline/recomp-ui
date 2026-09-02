@@ -2947,15 +2947,18 @@ void panel_audio_draw(LauncherModel* m, const LauncherTheme* th) {
 // for PSX; shown when the title can use multitap seats or the analog hack.
 int avail_input(const LauncherModel* m) {
     return launcher_model_multitap_available(m) ||
-           launcher_model_multitap_analog_available(m);
+           launcher_model_multitap_analog_available(m) ||
+           launcher_model_virtual_stylus_available(m);
 }
 void draw_input_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("INPUT");
+    bool previous_row = false;
     if (launcher_model_multitap_available(m)) {
         bool on = launcher_model_multitap_enabled(m) != 0;
         if (ImGui::Checkbox("Multitap", &on) &&
             (on ? 1 : 0) != launcher_model_multitap_enabled(m))
             launcher_model_toggle_multitap(m);
+        previous_row = true;
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
             ImGui::BeginTooltip();
             ImGui::PushTextWrapPos(px(320));
@@ -2968,12 +2971,13 @@ void draw_input_controls(LauncherModel* m, const LauncherTheme& th) {
         }
     }
     if (launcher_model_multitap_analog_available(m)) {
-        if (launcher_model_multitap_available(m))
+        if (previous_row)
             ImGui::Dummy(ImVec2(0, px(th.spacing_sm)));
         bool on = launcher_model_multitap_analog_enabled(m) != 0;
         if (ImGui::Checkbox("Multitap analog (hack)", &on) &&
             (on ? 1 : 0) != launcher_model_multitap_analog_enabled(m))
             launcher_model_toggle_multitap_analog(m);
+        previous_row = true;
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
             ImGui::BeginTooltip();
             ImGui::PushTextWrapPos(px(320));
@@ -2984,6 +2988,14 @@ void draw_input_controls(LauncherModel* m, const LauncherTheme& th) {
             ImGui::PopTextWrapPos();
             ImGui::EndTooltip();
         }
+    }
+    if (launcher_model_virtual_stylus_available(m)) {
+        if (previous_row)
+            ImGui::Dummy(ImVec2(0, px(th.spacing_sm)));
+        bool on = launcher_model_virtual_stylus_enabled(m) != 0;
+        if (ImGui::Checkbox("Virtual Stylus", &on) &&
+            (on ? 1 : 0) != launcher_model_virtual_stylus_enabled(m))
+            launcher_model_toggle_virtual_stylus(m);
     }
 }
 void panel_input_draw(LauncherModel* m, const LauncherTheme* th) {
@@ -3548,32 +3560,38 @@ void draw_controller_assist_shortcuts(LauncherModel* m,
     ImGui::TextColored(col(th.text_muted),
                        m->has_assist_tools
                            ? "(global; requires Assist Tools)"
-                           : "(button chords supported)");
-    if (ImGui::BeginTable("controller_assist_binds", 2,
-                          ImGuiTableFlags_SizingStretchSame)) {
-        for (int action = 0;
-             action < m->assist_binding_count && action < 2; ++action) {
-            ImGui::TableNextColumn();
+                           : "(keyboard and controller)");
+    if (ImGui::BeginTable("controller_assist_binds", 3,
+                          ImGuiTableFlags_SizingStretchProp |
+                              ImGuiTableFlags_RowBg)) {
+        ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch,
+                                1.1f);
+        ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthStretch,
+                                1.0f);
+        ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthStretch,
+                                1.0f);
+        ImGui::TableHeadersRow();
+        for (int action = 0; action < m->assist_binding_count; ++action) {
             ImGui::PushID(action);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted(m->assist_binding_labels[action]);
-            ImGui::SameLine(0, px(8));
-            if (m->has_assist_tools) {
-                bool capture_key = m->capturing && m->capture_assist &&
-                                   !m->capture_pad && m->capture_btn == action;
-                if (ImGui::Button(
-                        capture_key ? "[ key... ]" :
-                            settings_key_label(m->s.assist_key_bind[action]),
-                        ImVec2(px(105), 0)))
-                    launcher_model_begin_assist_capture(m, action, false);
-                ImGui::SameLine(0, px(5));
-            }
+            ImGui::TableSetColumnIndex(1);
+            bool capture_key = m->capturing && m->capture_assist &&
+                               !m->capture_pad && m->capture_btn == action;
+            if (ImGui::Button(
+                    capture_key ? "[ key... ]" :
+                        settings_key_label(m->s.assist_key_bind[action]),
+                    ImVec2(-FLT_MIN, 0)))
+                launcher_model_begin_assist_capture(m, action, false);
+            ImGui::TableSetColumnIndex(2);
             bool capture_pad = m->capturing && m->capture_assist &&
                                m->capture_pad && m->capture_btn == action;
             char pad[48];
             settings_pad_label(m->s.assist_pad_bind[action], pad, sizeof pad);
             if (ImGui::Button(capture_pad ? "[ button... ]" : pad,
-                              ImVec2(px(m->has_assist_tools ? 135 : 170), 0)))
+                              ImVec2(-FLT_MIN, 0)))
                 launcher_model_begin_assist_capture(m, action, true);
             ImGui::PopID();
         }
