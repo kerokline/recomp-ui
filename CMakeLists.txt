@@ -27,6 +27,12 @@ string(TOUPPER "${SNESRECOMP_SDL_BACKEND}" SNESRECOMP_SDL_BACKEND)
 if(SNESRECOMP_SDL_BACKEND STREQUAL "SDL3")
     find_package(SDL3 CONFIG REQUIRED)
     set(RUI_SDL_TARGET SDL3::SDL3)
+    # Any target that compiles a header off the launcher_platform.h chain needs
+    # these, or that header falls through to <SDL.h> -- the SDL2 include layout --
+    # and SDL_main's WinMain shim can rewrite standalone test entry points.
+    # recomp_target_launcher_ui() sets the launcher up; standalone targets that
+    # only link RUI_SDL_TARGET must be given the same contract explicitly.
+    set(RUI_SDL_DEFS LNG_SDL3=1 SDL_MAIN_HANDLED=1)
     if(TARGET SDL3::SDL3-shared)
         set(RUI_SDL_RUNTIME_TARGET SDL3::SDL3-shared)
     endif()
@@ -130,6 +136,7 @@ if(BUILD_TESTING)
     target_include_directories(recomp-ui-psx-binds-test PRIVATE
         src src/common src/consoles/psx)
     target_link_libraries(recomp-ui-psx-binds-test PRIVATE ${RUI_SDL_TARGET})
+    target_compile_definitions(recomp-ui-psx-binds-test PRIVATE ${RUI_SDL_DEFS})
     add_test(
         NAME recomp-ui-psx-binds
         COMMAND $<TARGET_FILE:recomp-ui-psx-binds-test>
