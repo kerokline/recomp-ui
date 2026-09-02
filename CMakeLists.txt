@@ -177,6 +177,25 @@ if(BUILD_TESTING)
         COMMAND $<TARGET_FILE:recomp-ui-launcher-setup-bios-test>
                 "${CMAKE_CURRENT_BINARY_DIR}")
 
+    # Per-seat pad_mode resolution: a locked mode (game.toml lock_mode) must
+    # survive the keyboard-has-no-sticks presentation default, because the
+    # selector that could undo it is hidden. Same include-the-TU shape as the
+    # two tests above.
+    add_executable(recomp-ui-launcher-pad-mode-test
+        tests/launcher_pad_mode_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-pad-mode-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-pad-mode-test PRIVATE
+        ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-pad-mode
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-pad-mode-test>)
+
     add_executable(recomp-ui-psx-profile-test
         tests/psx_profile_test.c)
     target_include_directories(recomp-ui-psx-profile-test PRIVATE
