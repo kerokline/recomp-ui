@@ -3967,20 +3967,165 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
         const ControllerSpec& spec = prof->controller;
         const bool is_psx = prof && prof->id && !strcmp(prof->id, "psx");
 
-        // ---- PSX: Gamepad Bindings (per selected SDL GUID) -----------------
-        // Replaces the keyboard grid on Configure. Column-major layout
-        // (top→bottom then next column) matching kPsxGamepadBindOrder.
+        // ---- PSX: bindings for whatever the player's input SOURCE is -------
+        // Column-major layout (top→bottom then next column) matching
+        // kPsxGamepadBindOrder, for the gamepad grid and the keyboard grid
+        // alike so switching source does not reshuffle the vocabulary.
+        //
+        // The gamepad grid used to be the ONLY thing this branch drew, and it
+        // renders only for a selected SDL GUID -- so picking Keyboard as the
+        // input source left the panel saying "select a gamepad" and offered no
+        // way to rebind the keyboard at all. Every other console reaches the
+        // generic keyboard grid in the else-branch below; PSX diverts here and
+        // so had lost it. Nothing else was missing: launcher_binds.c already
+        // fills m->binds / m->binds_alt for PSX from psxrecomp's own
+        // 24-scancode keybinds.ini, launcher_binds_set_button_slot() already
+        // persists back to it, launcher_binds_reset_player() already resets the
+        // keyboard map when no gamepad is selected, and the capture handler
+        // already accepts keys and mouse buttons into either slot.
         if (is_psx) {
-            ImGui::PushStyleColor(ImGuiCol_Text, col(th.accent2));
-            ImGui::Text("GAMEPAD BINDINGS - PLAYER %d", p + 1);
-            ImGui::PopStyleColor();
-            ImGui::Spacing();
-
             const bool has_pad_src = m->s.player_src[p] == 2 &&
                                      m->s.player_gamepad_guid[p][0];
+
+            ImGui::PushStyleColor(ImGuiCol_Text, col(th.accent2));
+            if (has_pad_src) ImGui::Text("GAMEPAD BINDINGS - PLAYER %d", p + 1);
+            else             ImGui::Text("KEYBOARD BINDINGS - PLAYER %d", p + 1);
+            ImGui::PopStyleColor();
+            // The alternate slot has no chip of its own (see the grid below);
+            // the heading carries its only discoverable mention, so the button
+            // row stays identical to the gamepad card's.
             if (!has_pad_src) {
+                ImGui::SameLine();
                 ImGui::TextColored(col(th.text_muted),
-                    "Select a gamepad as Input source to configure bindings.");
+                    "  (right-click a bind for an alternate)");
+            }
+            ImGui::Spacing();
+
+            if (!has_pad_src) {
+                // Same shape as the gamepad grid below: a fixed 3x8, filled
+                // column-major down kPsxGamepadBindOrder, one muted LABEL and
+                // one bind CHIP per row. Reading a bind list is a vertical
+                // scan, so the eye must go top->bottom within a column, not
+                // left->right across three unrelated inputs; and switching
+                // Input source must not reshuffle the vocabulary under the
+                // player's cursor.
+                //
+                // The keyboard store keeps an ALTERNATE bind per input
+                // (slot 1, also where a mouse button goes) which this grid no
+                // longer shows -- one chip is what parity with the gamepad
+                // card costs. Existing alternates in keybinds.ini are left
+                // untouched and still assert at runtime; they are just not
+                // editable from here.
+                float label_col_w = px(90.0f);
+                for (int i = 0; i < LNG_PSX_PAD_BUTTON_COUNT; ++i) {
+                    float w = ImGui::CalcTextSize(spec.buttons[i].label).x + px(20.0f);
+                    if (w > label_col_w) label_col_w = w;
+                }
+                const float chip_w = px(140.0f);
+                const float cell_w = label_col_w + chip_w + px(16.0f);
+                if (ImGui::BeginTable("psx_key_binds", LNG_PSX_GAMEPAD_BIND_COLS,
+                                      ImGuiTableFlags_SizingFixedFit)) {
+                    for (int c = 0; c < LNG_PSX_GAMEPAD_BIND_COLS; ++c)
+                        ImGui::TableSetupColumn(nullptr,
+                            ImGuiTableColumnFlags_WidthFixed, cell_w);
+                    for (int row = 0; row < LNG_PSX_GAMEPAD_BIND_ROWS; ++row) {
+                        for (int c = 0; c < LNG_PSX_GAMEPAD_BIND_COLS; ++c) {
+                            const int order_i = c * LNG_PSX_GAMEPAD_BIND_ROWS + row;
+                            const int b = kPsxGamepadBindOrder[order_i];
+                            ImGui::TableNextColumn();
+                            ImGui::PushID(b);
+                            ImGui::AlignTextToFramePadding();
+                            ImGui::TextColored(col(th.text_muted), "%s",
+                                               spec.buttons[b].label);
+                            ImGui::SameLine(label_col_w);
+                            const bool cap = m->capturing && !m->capture_pad &&
+                                             m->capture_btn == b;
+                            const bool cap_alt = cap && m->capture_slot == 1;
+                            const char* lbl = m->binds[p][b];
+                            if (!lbl || !lbl[0]) lbl = "(unbound)";
+                            const char* alt = m->binds_alt[p][b];
+                            const bool has_alt = alt && alt[0] &&
+                                                 strcmp(alt, "(unbound)") != 0;
+                            const char* chip = cap_alt ? "[ press an alt... ]"
+                                             : cap     ? "[ press a key... ]"
+                                                       : lbl;
+                            if (cap) ImGui::PushStyleColor(ImGuiCol_Button, col(th.accent));
+                            if (ImGui::Button(chip, ImVec2(chip_w, 0))) {
+                                m->map_all_active = false;
+                                launcher_model_begin_capture_slot(m, b, 0);
+                            }
+                            if (cap) ImGui::PopStyleColor();
+                            // Right-click captures into slot 1 -- the ALTERNATE
+                            // bind, and the only slot a mouse button can go in.
+                            // Fire on RELEASE, not IsItemClicked (which fires on
+                            // press): try_capture swallows every mouse event once
+                            // capturing, so a press-triggered capture would eat
+                            // its own button-up and leave ImGui believing the
+                            // right button was held down forever.
+                            if (ImGui::IsItemHovered() &&
+                                ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
+                                m->map_all_active = false;
+                                launcher_model_begin_capture_slot(m, b, 1);
+                            }
+                            // A bind with an alternate carries an accent dot in
+                            // the chip's corner: without it the second bind is
+                            // invisible, and a chip with no alternate stays
+                            // pixel-identical to the gamepad card's.
+                            if (has_alt && !cap) {
+                                const ImVec2 mn = ImGui::GetItemRectMin();
+                                const ImVec2 mx = ImGui::GetItemRectMax();
+                                ImGui::GetWindowDrawList()->AddCircleFilled(
+                                    ImVec2(mx.x - px(6.0f), mn.y + px(6.0f)),
+                                    px(2.5f), ImGui::GetColorU32(col(th.accent2)));
+                            }
+                            if (ImGui::IsItemHovered()) {
+                                if (has_alt)
+                                    ImGui::SetTooltip(
+                                        "Alternate: %s\n"
+                                        "Right-click to rebind it (key or mouse button)",
+                                        alt);
+                                else
+                                    ImGui::SetTooltip(
+                                        "No alternate bound\n"
+                                        "Right-click to set one (key or mouse button)");
+                            }
+                            ImGui::PopID();
+                        }
+                    }
+                    ImGui::EndTable();
+                }
+                ImGui::Spacing();
+                if (ImGui::Button("Map All Bindings"))
+                    launcher_model_begin_map_all(m);
+                ImGui::SameLine();
+                if (ImGui::Button("Reset to Defaults"))
+                    launcher_binds_reset_player(m, m->cfg_player + 1);
+                // Save Profile -- keyboard captures already write keybinds.ini
+                // on every rebind, so this is the explicit commit + flush.
+                static double s_kb_profile_saved_until = 0.0;
+                {
+                    const float save_w = px(120.0f);
+                    const float right = ImGui::GetWindowContentRegionMax().x;
+                    ImGui::SameLine(right - save_w);
+                    if (ImGui::Button("Save Profile", ImVec2(save_w, 0))) {
+                        launcher_binds_save_psx_keyboard(m, p + 1);
+                        s_kb_profile_saved_until = ImGui::GetTime() + 2.5;
+                    }
+                }
+                if (m->capturing && !m->capture_pad) {
+                    const char* label =
+                        (m->capture_btn >= 0 &&
+                         m->capture_btn < LNG_PSX_PAD_BUTTON_COUNT)
+                            ? spec.buttons[m->capture_btn].label : "?";
+                    ImGui::TextColored(col(th.warn),
+                        "Map %s to %s (Esc cancels)%s",
+                        m->capture_slot == 1 ? "an alternate key / mouse button"
+                                             : "a key",
+                        label,
+                        m->map_all_active ? " — Map All" : "");
+                }
+                if (ImGui::GetTime() < s_kb_profile_saved_until)
+                    ImGui::TextColored(col(th.accent2), "Input Profile Saved!");
             } else {
                 float label_col_w = px(90.0f);
                 for (int i = 0; i < LNG_PSX_PAD_BUTTON_COUNT; ++i) {
@@ -9169,12 +9314,17 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
             if (btn >= 1 && btn <= 5) {
                 launcher_binds_set_button_slot(m, m->cfg_player + 1, m->capture_btn,
                                                m->capture_slot, 512 + btn);
-                launcher_model_cancel_capture(m);
+                if (m->map_all_active) launcher_model_map_all_advance(m);
+                else                   launcher_model_cancel_capture(m);
             }
             return true;
         }
     }
     if (ev.type != SDL_EVENT_KEY_DOWN) return true;   // swallow non-key input while capturing
+    // A held key auto-repeats. Harmless for a single rebind (it commits the
+    // same scancode twice) but during a keyboard Map All each repeat would
+    // advance a step, racing 24 buttons past on one keypress.
+    if (m->capturing && m->map_all_active && LNG_EVKEYREPEAT(ev)) return true;
     if (m->capturing) {
         // N64's input.cfg keeps two alternate binds per input, so a keyboard
         // capture there must honour capture_slot via the slot-aware field API.
@@ -9191,7 +9341,8 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
                                      RUI_N64_FIELD_KEY, (int)LNG_EVSCAN(ev));
         else
             launcher_binds_set_button(m, m->cfg_player + 1, m->capture_btn, (int)LNG_EVSCAN(ev));
-        launcher_model_cancel_capture(m);
+        if (m->map_all_active) launcher_model_map_all_advance(m);
+        else                   launcher_model_cancel_capture(m);
         return true;
     }
     // hotkey capture: wait past a bare modifier press for the real key

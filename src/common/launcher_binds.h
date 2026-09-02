@@ -81,6 +81,9 @@ void launcher_binds_reset_player(LauncherModel* m, int player);
 // Save Profile: persist this player's selected gamepad name, custom-name flag,
 // deadzone, and button mappings into input.ini.
 void launcher_binds_save_psx_gamepad(LauncherModel* m, int player /*1-based*/);
+// Save Profile with a KEYBOARD input source: flush this player's keyboard map
+// to keybinds.ini (captures already persist; this is the explicit commit).
+void launcher_binds_save_psx_keyboard(LauncherModel* m, int player /*1-based*/);
 // Rename the selected gamepad (custom display name for the GUID).
 void launcher_binds_rename_psx_gamepad(LauncherModel* m, int player /*1-based*/,
                                        const char* name);
