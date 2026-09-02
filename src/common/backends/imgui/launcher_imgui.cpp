@@ -3959,20 +3959,103 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
         const ControllerSpec& spec = prof->controller;
         const bool is_psx = prof && prof->id && !strcmp(prof->id, "psx");
 
-        // ---- PSX: Gamepad Bindings (per selected SDL GUID) -----------------
-        // Replaces the keyboard grid on Configure. Column-major layout
-        // (top→bottom then next column) matching kPsxGamepadBindOrder.
+        // ---- PSX: bindings for whatever the player's input SOURCE is -------
+        // Column-major layout (top→bottom then next column) matching
+        // kPsxGamepadBindOrder, for the gamepad grid and the keyboard grid
+        // alike so switching source does not reshuffle the vocabulary.
+        //
+        // The gamepad grid used to be the ONLY thing this branch drew, and it
+        // renders only for a selected SDL GUID -- so picking Keyboard as the
+        // input source left the panel saying "select a gamepad" and offered no
+        // way to rebind the keyboard at all. Every other console reaches the
+        // generic keyboard grid in the else-branch below; PSX diverts here and
+        // so had lost it. Nothing else was missing: launcher_binds.c already
+        // fills m->binds / m->binds_alt for PSX from psxrecomp's own
+        // 24-scancode keybinds.ini, launcher_binds_set_button_slot() already
+        // persists back to it, launcher_binds_reset_player() already resets the
+        // keyboard map when no gamepad is selected, and the capture handler
+        // already accepts keys and mouse buttons into either slot.
         if (is_psx) {
+            const bool has_pad_src = m->s.player_src[p] == 2 &&
+                                     m->s.player_gamepad_guid[p][0];
+
             ImGui::PushStyleColor(ImGuiCol_Text, col(th.accent2));
-            ImGui::Text("GAMEPAD BINDINGS - PLAYER %d", p + 1);
+            if (has_pad_src) ImGui::Text("GAMEPAD BINDINGS - PLAYER %d", p + 1);
+            else             ImGui::Text("KEYBOARD BINDINGS - PLAYER %d", p + 1);
             ImGui::PopStyleColor();
             ImGui::Spacing();
 
-            const bool has_pad_src = m->s.player_src[p] == 2 &&
-                                     m->s.player_gamepad_guid[p][0];
             if (!has_pad_src) {
+                // Two chips per input: slot 0 primary, slot 1 alternate, either
+                // asserting the button at runtime. The alternate is also where a
+                // mouse button can go (psx_keybinds.c stores those as pseudo-
+                // scancodes), which is the reason the store keeps two at all.
+                float label_col_w = px(90.0f);
+                for (int i = 0; i < LNG_PSX_PAD_BUTTON_COUNT; ++i) {
+                    float w = ImGui::CalcTextSize(spec.buttons[i].label).x + px(20.0f);
+                    if (w > label_col_w) label_col_w = w;
+                }
+                const float chip_w   = px(104.0f);
+                const float chip_gap = px(6.0f);
+                const float cell_w = label_col_w + chip_w + chip_gap + chip_w + px(16.0f);
+                // Two chips per row need more width than the gamepad grid's one,
+                // so drop columns rather than overlap when the window is narrow.
+                int cols = (int)(ImGui::GetContentRegionAvail().x / cell_w);
+                if (cols < 1) cols = 1;
+                if (cols > LNG_PSX_GAMEPAD_BIND_COLS) cols = LNG_PSX_GAMEPAD_BIND_COLS;
+                const int rows = (LNG_PSX_PAD_BUTTON_COUNT + cols - 1) / cols;
+
+                if (ImGui::BeginTable("psx_key_binds", cols,
+                                      ImGuiTableFlags_SizingFixedFit)) {
+                    for (int c = 0; c < cols; ++c)
+                        ImGui::TableSetupColumn(nullptr,
+                            ImGuiTableColumnFlags_WidthFixed, cell_w);
+                    for (int row = 0; row < rows; ++row) {
+                        for (int c = 0; c < cols; ++c) {
+                            ImGui::TableNextColumn();
+                            const int order_i = c * rows + row;
+                            if (order_i >= LNG_PSX_PAD_BUTTON_COUNT) continue;
+                            const int b = kPsxGamepadBindOrder[order_i];
+                            ImGui::PushID(b);
+                            ImGui::AlignTextToFramePadding();
+                            ImGui::TextColored(col(th.text_muted), "%s",
+                                               spec.buttons[b].label);
+                            ImGui::SameLine(label_col_w);
+                            for (int slot = 0; slot < 2; ++slot) {
+                                if (slot) ImGui::SameLine(0, chip_gap);
+                                ImGui::PushID(slot);
+                                const bool cap = m->capturing && !m->capture_pad &&
+                                                 m->capture_btn == b &&
+                                                 m->capture_slot == slot;
+                                const char* lbl = (slot == 0) ? m->binds[p][b]
+                                                              : m->binds_alt[p][b];
+                                if (!lbl || !lbl[0]) lbl = "(unbound)";
+                                if (cap) ImGui::PushStyleColor(ImGuiCol_Button, col(th.accent));
+                                if (ImGui::Button(cap ? "[ press a key... ]" : lbl,
+                                                  ImVec2(chip_w, 0)))
+                                    launcher_model_begin_capture_slot(m, b, slot);
+                                if (cap) ImGui::PopStyleColor();
+                                ImGui::PopID();
+                            }
+                            ImGui::PopID();
+                        }
+                    }
+                    ImGui::EndTable();
+                }
+                ImGui::Spacing();
+                if (ImGui::Button("Reset to Defaults"))
+                    launcher_binds_reset_player(m, m->cfg_player + 1);
+                ImGui::SameLine();
                 ImGui::TextColored(col(th.text_muted),
-                    "Select a gamepad as Input source to configure bindings.");
+                    "Either bind triggers the input; the second also takes a mouse button.");
+                if (m->capturing && !m->capture_pad) {
+                    const char* label =
+                        (m->capture_btn >= 0 &&
+                         m->capture_btn < LNG_PSX_PAD_BUTTON_COUNT)
+                            ? spec.buttons[m->capture_btn].label : "?";
+                    ImGui::TextColored(col(th.warn),
+                        "Map a key to %s (Esc cancels)", label);
+                }
             } else {
                 float label_col_w = px(90.0f);
                 for (int i = 0; i < LNG_PSX_PAD_BUTTON_COUNT; ++i) {
