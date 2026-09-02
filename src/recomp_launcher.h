@@ -363,6 +363,14 @@ typedef struct RecompLauncherCModPackage {
 /* A package may contribute any number of independently configurable features.
  * Feature identity is the (package_id, id) pair; feature ids only need to be
  * unique within their owning package. */
+/* How finished a feature is. Zero is stable, so a provider that predates this
+ * field reports every feature as stable under zero-init. */
+typedef enum RecompLauncherCModChannel {
+    RECOMP_MOD_CHANNEL_STABLE = 0,
+    RECOMP_MOD_CHANNEL_EXPERIMENTAL = 1,
+    RECOMP_MOD_CHANNEL_DEVELOPER = 2,
+} RecompLauncherCModChannel;
+
 typedef struct RecompLauncherCModFeature {
     char id[RECOMP_LAUNCHER_MOD_ID_MAX];
     char package_id[RECOMP_LAUNCHER_MOD_ID_MAX];
@@ -388,6 +396,11 @@ typedef struct RecompLauncherCModFeature {
      * Providers still expose them so an explicitly-enabled hidden feature can
      * be shown and turned off again. */
     int  hidden;
+    /* RecompLauncherCModChannel. Stable is 0, so zero-init and older providers
+     * both mean "stable" and need no special case. Developer-channel features
+     * never reach a shipped build at all -- when one appears here, this is a
+     * local developer build. Appended for ABI stability. */
+    int  channel;
 } RecompLauncherCModFeature;
 
 typedef struct RecompLauncherCModOption {

@@ -6640,6 +6640,51 @@ static bool mod_text_matches(const char* search, const RecompLauncherCModPackage
     return haystack.find(needle) != std::string::npos;
 }
 
+/* One channel vocabulary, used everywhere a feature is named.
+ *
+ * A stable feature gets NO tag. The absence is the stable case, and tagging
+ * every row would bury the two that actually need saying something. The short
+ * form is for the list, where rows are 330px wide and already carry a name and
+ * a package; the long form and the explanation are for the detail pane. Same
+ * word stem and same colour in both, so the two read as one marker. */
+static const char* mod_channel_tag_short(int channel) {
+    switch (channel) {
+        case RECOMP_MOD_CHANNEL_EXPERIMENTAL: return ui_text("EXP");
+        case RECOMP_MOD_CHANNEL_DEVELOPER:    return ui_text("DEV");
+        default: return NULL;
+    }
+}
+
+static const char* mod_channel_tag(int channel) {
+    switch (channel) {
+        case RECOMP_MOD_CHANNEL_EXPERIMENTAL: return ui_text("EXPERIMENTAL");
+        case RECOMP_MOD_CHANNEL_DEVELOPER:    return ui_text("DEVELOPER");
+        default: return NULL;
+    }
+}
+
+static const char* mod_channel_blurb(int channel) {
+    switch (channel) {
+        case RECOMP_MOD_CHANNEL_EXPERIMENTAL:
+            return ui_text("Works, but has not been validated on this game. "
+                           "Expect rough edges, and turn it off if something "
+                           "looks wrong.");
+        case RECOMP_MOD_CHANNEL_DEVELOPER:
+            return ui_text("A work-in-progress instrument rather than a player "
+                           "feature. Released builds do not include it -- you "
+                           "are seeing it because this is a local build.");
+        default:
+            return NULL;
+    }
+}
+
+/* Amber is the theme's documented "unverified / caution" colour, which is
+ * exactly what experimental means. Developer is not a caution, it is a
+ * category, so it takes the secondary accent instead. */
+static LngColor mod_channel_color(int channel, const LauncherTheme& th) {
+    return channel == RECOMP_MOD_CHANNEL_DEVELOPER ? th.accent2 : th.warn;
+}
+
 static bool mod_feature_text_matches(const char* search,
                                      const RecompLauncherCModFeature& feature) {
     if (!search || !search[0]) return true;
@@ -6647,6 +6692,9 @@ static bool mod_feature_text_matches(const char* search,
         feature.id + " " + feature.group + " " + feature.author + " " +
         feature.description + " " + feature.package_name + " " +
         feature.package_id + " " + feature.status;
+    /* Searching "experimental" should find the experimental features. */
+    if (const char* channel_tag = mod_channel_tag(feature.channel))
+        haystack += std::string(" ") + channel_tag;
     std::transform(needle.begin(), needle.end(), needle.begin(),
         [](unsigned char c) { return (char)std::tolower(c); });
     std::transform(haystack.begin(), haystack.end(), haystack.begin(),
@@ -7340,6 +7388,17 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                             ImGui::SetTooltip("%s", feature.status);
                         ImGui::SameLine();
                     }
+                    if (const char* channel_tag =
+                            mod_channel_tag_short(feature.channel)) {
+                        ImGui::TextColored(
+                            col(mod_channel_color(feature.channel, th)), "%s",
+                            channel_tag);
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("%s\n%s",
+                                              mod_channel_tag(feature.channel),
+                                              mod_channel_blurb(feature.channel));
+                        ImGui::SameLine();
+                    }
 
                     char label[320];
                     std::snprintf(label, sizeof(label), "%s\n%s%s%s",
@@ -7376,6 +7435,11 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
         if (feature_count > 0 &&
             mods->feature_get(mods->ctx, m->mod_selected, &feature)) {
             ImGui::TextColored(col(th.accent2), "%s", feature.name);
+            if (const char* channel_tag = mod_channel_tag(feature.channel)) {
+                ImGui::SameLine();
+                ImGui::TextColored(col(mod_channel_color(feature.channel, th)),
+                                   "%s", channel_tag);
+            }
             if (feature.group[0]) {
                 ImGui::SameLine();
                 ImGui::TextColored(col(th.text_muted), "%s", feature.group);
@@ -7396,6 +7460,14 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                 ImGui::TextLinkOpenURL(
                     feature.source_name[0] ? feature.source_name : ui_text("Project page"),
                     feature.source_url);
+            }
+            if (const char* channel_blurb = mod_channel_blurb(feature.channel)) {
+                ImGui::PushStyleColor(
+                    ImGuiCol_Text,
+                    col(mod_channel_color(feature.channel, th)));
+                ImGui::TextWrapped("%s", channel_blurb);
+                ImGui::PopStyleColor();
+                ImGui::Spacing();
             }
             if (feature.description[0])
                 ImGui::TextWrapped("%s", feature.description);
