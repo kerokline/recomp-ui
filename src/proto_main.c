@@ -40,6 +40,39 @@ static int proto_tpak_inspect(const char* rom_path, const char* save_path,
     return 1;
 }
 
+/* Harness stand-ins for the codegen host's setup callbacks (LNG_DEMO_SETUP).
+ * Mirrors psxrecomp's ae_bios_verify: the empty path is bundled OpenBIOS, a
+ * path naming "linked" is compiled into this build, anything else is a valid
+ * retail dump with no backend linked yet -> needs_regen. */
+static int proto_bios_verify(const char* path, RecompLauncherCBiosVerify* out) {
+    memset(out, 0, sizeof(*out));
+    if (!path || !path[0]) {
+        out->ok = 1;
+        snprintf(out->detail, sizeof(out->detail), "Using bundled OpenBIOS.");
+        return 1;
+    }
+    if (strstr(path, "linked")) {
+        out->ok = 1;
+        snprintf(out->detail, sizeof(out->detail), "SCPH1001.BIN (CRC OK).");
+        return 1;
+    }
+    out->needs_regen = 1;
+    snprintf(out->detail, sizeof(out->detail),
+             "This BIOS is not compiled into the current build. "
+             "Generate & rebuild to switch (or use OpenBIOS).");
+    return 1;
+}
+
+static int proto_prepare(const char* source_path, char* out_path, size_t out_cap,
+                         char* err_msg, size_t err_cap,
+                         RecompLauncherCPrepareProgressFn on_progress,
+                         void* progress_ctx) {
+    (void)err_msg; (void)err_cap;
+    if (on_progress) on_progress(progress_ctx, 0.5f, "Harness: no real SDK here…");
+    snprintf(out_path, out_cap, "%s", source_path ? source_path : "");
+    return 1;
+}
+
 int main(int argc, char** argv) {
     (void)argc; (void)argv;
 
@@ -232,6 +265,35 @@ int main(int argc, char** argv) {
         gi.has_expected_crc = 1;
         gi.expected_crc     = 0xA2B10169u;   // CRC32 of test_data/msu1_demo_vanilla.rom
         demo_msu_rom = "test_data/msu1_demo_vanilla.rom";
+    }
+
+    /* Harness-only: the received-package first-run state. A build someone else
+     * compiled opens the wizard asking for BIOS + disc; browsing a retail dump
+     * this binary has no backend for must keep the wizard (and its disc rows)
+     * up and turn its primary button into Generate & rebuild. Any BIOS path
+     * except one containing "linked" reports needs_regen, so
+     *   LNG_DEMO_SETUP=1 ./recomp-ui-launcher
+     * then Browse BIOS -> pick any file reproduces it without a real game.
+     * LNG_DEMO_SETUP=2 additionally previews the full first-run shape
+     * (generated sources absent), where the "Generate from disc" section
+     * carries the button instead. */
+    const char* demo_setup = SDL_getenv("LNG_DEMO_SETUP");
+    if (demo_setup && demo_setup[0] && demo_setup[0] != '0') {
+        gi.setup_wizard_supported = 1;
+        gi.has_bios               = 1;
+        gi.needs_setup            = 1;
+        gi.bios_verify            = proto_bios_verify;
+        gi.prepare_with_progress  = proto_prepare;
+        gi.prepare_use_selected_rom = 1;
+        gi.prepare_section_title  = "Generate BIOS + game C & rebuild";
+        gi.prepare_disc_label     = "Generate & rebuild…";
+        if (demo_setup[0] == '2')
+            gi.prepare_required_before_continue = 1;
+        /* Seed the pick instead of browsing for it, so the state this exists to
+         * show is one launch away (and screenshottable). */
+        const char* seed = SDL_getenv("LNG_DEMO_SETUP_BIOS");
+        if (seed && seed[0])
+            snprintf(s.bios_path, sizeof(s.bios_path), "%s", seed);
     }
 
     LauncherModel model;

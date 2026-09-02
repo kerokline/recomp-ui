@@ -1942,6 +1942,12 @@ void launcher_model_set_bios_path(LauncherModel* m, const char* path) {
     } else {
         m->s.bios_path[0] = '\0';
     }
+    /* An outright set replaces any pick staged for Generate & rebuild, so the
+     * revert target must go with it (otherwise a later failed job would
+     * restore a path the player already moved away from). */
+    m->bios_switch_uncommitted = false;
+    m->bios_pending_path[0] = '\0';
+    m->bios_revert_path[0] = '\0';
     launcher_model_refresh_bios_status(m);
     lm_persist_setup_sidecars(m);
 }
@@ -2026,8 +2032,13 @@ static void lm_bios_kick_generate(LauncherModel* m) {
         if (m->toolchain_is_ready_cb && m->toolchain_is_ready_cb())
             m->setup_tc_ready = true;
         if (!m->setup_tc_ready) {
-            lm_bios_revert_uncommitted(m);
+            /* Missing build tools is a prerequisite, not a failed switch: when
+             * we can send the player to wizard page 0 to install them, keep
+             * their BIOS pick staged so Generate resumes with it. Only drop it
+             * when there is no wizard to come back to. */
             lm_restore_setup_wizard_after_bios(m, 0);
+            if (!m->setup_wizard_open)
+                lm_bios_revert_uncommitted(m);
             return;
         }
     }
@@ -2107,10 +2118,32 @@ void launcher_model_request_bios_path(LauncherModel* m, const char* path) {
         safe_copy(m->setup_bios_detail, sizeof(m->setup_bios_detail),
                   "This retail BIOS is not compiled into the current build. "
                   "Generate & rebuild to add it (or Use OpenBIOS).");
-    /* Do not nest Switch BIOS? under First-run setup — ImGui soft-locks. */
+    /* Picked from inside first-run setup: stage it in place and let the wizard
+     * turn its own primary button into Generate & rebuild. Popping "Switch
+     * BIOS?" here would hide the disc rows the player still has to fill in —
+     * and its Generate button is disabled until a disc is picked, so the
+     * modal was a dead end for anyone who chose the BIOS first. */
     if (m->setup_wizard_open) {
-        m->setup_wizard_suspended_for_bios = true;
-        m->setup_wizard_open = false;
+        /* Only the FIRST staged pick records the revert target — picking a
+         * second unlinked dump must not make the first one the fallback. */
+        if (!m->bios_switch_uncommitted)
+            safe_copy(m->bios_revert_path, sizeof(m->bios_revert_path),
+                      m->s.bios_path);
+        safe_copy(m->s.bios_path, sizeof(m->s.bios_path), normalized);
+        m->bios_switch_uncommitted = true;
+        /* Re-verify against the staged path so setup_bios_needs_regen reflects
+         * the new pick; keep the explanatory detail when the host has none. */
+        {
+            char detail[sizeof(m->setup_bios_detail)];
+            safe_copy(detail, sizeof(detail), m->setup_bios_detail);
+            launcher_model_refresh_bios_status(m);
+            if (!m->setup_bios_detail[0])
+                safe_copy(m->setup_bios_detail, sizeof(m->setup_bios_detail),
+                          detail);
+        }
+        /* Not persisted: bios.cfg still names the BIOS this binary can run
+         * until Generate & rebuild actually succeeds. */
+        return;
     }
     m->bios_confirm_open = true;
 }
@@ -2190,6 +2223,44 @@ bool launcher_model_setup_media_confirm_only(const LauncherModel* m) {
      * normal media picker copy, not the "confirm cleared paths" prompt. */
     if (!m->prepare_with_progress_cb && !m->prepare_disc_cb) return false;
     return true;
+}
+
+bool launcher_model_setup_needs_bios_regen(const LauncherModel* m) {
+    if (!m || !m->setup_wizard_supported || !m->has_bios) return false;
+    /* OpenBIOS (empty path) is always a hot-swap. */
+    if (!m->s.bios_path[0]) return false;
+    return m->setup_bios_needs_regen;
+}
+
+const char* launcher_model_setup_bios_regen_blocker(const LauncherModel* m) {
+    if (!m || !launcher_model_setup_needs_bios_regen(m)) return NULL;
+    if (m->setup_preparing) return "Wait for the current job to finish";
+    if (!m->prepare_with_progress_cb && !m->prepare_disc_cb)
+        return "Generate is unavailable (project/SDK not found)";
+    if (!m->rom_present || !m->rom_full[0] || strcmp(m->rom_size, "--") == 0)
+        return "Select a disc image first";
+    if (m->num_discs > 1 &&
+        launcher_model_discs_ready_count(m) < m->num_discs)
+        return "Locate every disc of the set first";
+    if (m->profile && m->profile->verify.mode == 1 &&
+        (m->verify.verdict == 0 || m->verify.verdict == 3))
+        return "Disc image not accepted";
+    return NULL;
+}
+
+bool launcher_model_can_start_bios_regen(const LauncherModel* m) {
+    return launcher_model_setup_needs_bios_regen(m) &&
+           launcher_model_setup_bios_regen_blocker(m) == NULL;
+}
+
+void launcher_model_setup_start_bios_regen(LauncherModel* m) {
+    if (!launcher_model_can_start_bios_regen(m)) return;
+    /* Kicked from inside the wizard: a failed job — or a toolchain that still
+     * has to be installed — must land back on the wizard, not a bare
+     * dashboard the player never reached. */
+    if (m->setup_wizard_open)
+        m->setup_wizard_suspended_for_bios = true;
+    lm_bios_kick_generate(m);
 }
 
 bool launcher_model_can_finish_setup(const LauncherModel* m) {

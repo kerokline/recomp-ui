@@ -8299,7 +8299,26 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
     const SetupPlatKind plat = setup_platform_kind(m->platform);
     const bool media_confirm = launcher_model_setup_media_confirm_only(m);
 
-    if (media_confirm) {
+    /* A retail BIOS was staged in section 1 that this binary has no backend
+     * for: the wizard stays up (disc rows and all) and its primary button
+     * becomes Generate & rebuild. */
+    const bool bios_regen = launcher_model_setup_needs_bios_regen(m);
+    /* The dedicated "Generate from disc" section below is drawn on a full
+     * first run only. When it is there it already carries a live Generate &
+     * rebuild button, so the footer must not grow a second one. */
+    const bool prep_section_shown =
+        !media_confirm && (m->prepare_disc_cb || m->prepare_with_progress_cb);
+
+    if (bios_regen) {
+        ImGui::TextColored(col(th.accent), "Rebuild required for this BIOS");
+        ImGui::PushTextWrapPos(wrap_x);
+        ImGui::TextColored(col(th.text_muted),
+            "%s was built against a different BIOS. Keep your selection below "
+            "and choose Generate & rebuild to compile this one in (you need a "
+            "disc image for that), or switch back to OpenBIOS to play now.",
+            game);
+        ImGui::PopTextWrapPos();
+    } else if (media_confirm) {
         ImGui::TextColored(col(th.accent),
                            m->has_bios ? "Confirm BIOS and disc"
                                        : "Confirm disc");
@@ -8413,8 +8432,12 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
         }
         ImGui::PopStyleVar();
         if (m->setup_bios_detail[0]) {
+            /* "not compiled into this build" is the reason the footer button
+             * changed — it must not read as a muted aside. */
+            const bool detail_warn =
+                m->setup_bios_warn || m->setup_bios_needs_regen;
             ImGui::PushTextWrapPos(wrap_x);
-            ImGui::TextColored(col(m->setup_bios_warn ? th.warn : th.text_muted),
+            ImGui::TextColored(col(detail_warn ? th.warn : th.text_muted),
                                "%s", m->setup_bios_detail);
             ImGui::PopTextWrapPos();
         }
@@ -8634,7 +8657,26 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
         }
         ImGui::SameLine();
     }
-    if (!m->prepare_required_before_continue) {
+    if (bios_regen && !prep_section_shown) {
+        /* The staged BIOS has no linked backend, so Confirm/Continue could
+         * never succeed. Same button, same place — it just does the thing the
+         * player was told they need. */
+        const char* blocker = launcher_model_setup_bios_regen_blocker(m);
+        if (blocker) ImGui::BeginDisabled();
+        if (ImGui::Button("Generate & rebuild", ImVec2(px(220), px(34))))
+            launcher_model_setup_start_bios_regen(m);
+        if (blocker) {
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", blocker);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Use OpenBIOS", ImVec2(px(130), px(34))))
+            launcher_model_request_bios_path(m, "");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Play now with the bundled OpenBIOS (no rebuild).");
+        ImGui::SameLine();
+    } else if (!m->prepare_required_before_continue) {
         const bool ready = launcher_model_can_finish_setup(m);
         const char* continue_lbl =
             media_confirm
@@ -8652,6 +8694,9 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
                     ImGui::SetTooltip("Select a %s first", noun);
                 else if (m->setup_preparing)
                     ImGui::SetTooltip("Wait for the current job to finish");
+                else if (m->has_bios && m->setup_bios_needs_regen)
+                    ImGui::SetTooltip("Generate & rebuild with this BIOS "
+                                      "first, or switch to OpenBIOS");
                 else if (m->has_bios && !m->setup_bios_ok)
                     ImGui::SetTooltip("BIOS check required");
                 else if (m->netplay_supported &&

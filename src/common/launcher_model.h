@@ -900,6 +900,17 @@ void launcher_model_set_gyro_sensitivity(LauncherModel* m, float value);
 // because generated sources / a full build are already present. Cleared
 // disc.cfg / BIOS paths reopen the wizard without the Generate & rebuild page.
 bool launcher_model_setup_media_confirm_only(const LauncherModel* m);
+// True when the BIOS the player picked inside the wizard is a valid retail dump
+// with no backend linked in this binary — the wizard keeps its disc rows and
+// swaps its primary button (Confirm / Continue) for Generate & rebuild.
+bool launcher_model_setup_needs_bios_regen(const LauncherModel* m);
+// Why that Generate & rebuild cannot run yet (tooltip text), or NULL when it
+// can. NULL also when no BIOS regen is pending at all.
+const char* launcher_model_setup_bios_regen_blocker(const LauncherModel* m);
+bool launcher_model_can_start_bios_regen(const LauncherModel* m);
+// Kick generate (+ chained rebuild) for the staged BIOS from inside the wizard.
+// No-op unless launcher_model_can_start_bios_regen.
+void launcher_model_setup_start_bios_regen(LauncherModel* m);
 // True when required BIOS + ROM/disc paths are present (readable), and when
 // prepare_required_before_continue is set, prepare (+ chained rebuild) has
 // succeeded. Fingerprint mismatch is allowed here.
