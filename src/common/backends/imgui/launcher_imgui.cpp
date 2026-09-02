@@ -7264,6 +7264,50 @@ static bool set_all_mod_features(LauncherModel* m, bool enabled) {
     return true;
 }
 
+/* Packages that never loaded, at the top of the page.
+ *
+ * A package whose manifest will not parse has no row in the list below -- it
+ * has no features, because it has no manifest -- so if this is not drawn the
+ * only symptom is a mod that is silently absent. That was the whole defect:
+ * an author's typo produced a mod that did not exist, with nothing anywhere
+ * saying why. It goes above the list rather than in the detail pane because
+ * there is no row to select to reach it. */
+static void draw_mod_catalog_diagnostics(LauncherModel* m,
+                                         const LauncherTheme& th) {
+    const auto* mods = m ? m->mods : nullptr;
+    if (!mods || !mods->catalog_diagnostic_count ||
+        !mods->catalog_diagnostic_get) {
+        return;
+    }
+    const int count = mods->catalog_diagnostic_count(mods->ctx);
+    if (count <= 0) return;
+
+    char heading[128];
+    std::snprintf(heading, sizeof(heading),
+                  count == 1 ? ui_text("%d mod package could not be loaded")
+                             : ui_text("%d mod packages could not be loaded"),
+                  count);
+    if (ImGui::CollapsingHeader(heading, ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::TextColored(
+            col(th.text_muted), "%s",
+            ui_text("These are not installed. Fix the manifest and restart, "
+                    "or run: psxmod validate <path>"));
+        for (int index = 0; index < count; ++index) {
+            RecompLauncherCModDiagnostic diagnostic{};
+            if (!mods->catalog_diagnostic_get(mods->ctx, index, &diagnostic))
+                continue;
+            ImGui::PushID(index);
+            ImGui::TextColored(col(th.warn), "%s", diagnostic.message);
+            if (diagnostic.resource[0])
+                ImGui::TextWrapped("%s", diagnostic.resource);
+            ImGui::PopID();
+        }
+        ImGui::Spacing();
+    }
+    ImGui::Separator();
+    ImGui::Spacing();
+}
+
 static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
     const auto* mods = m ? m->mods : nullptr;
     if (!mods || !mods->feature_count || !mods->feature_get ||
@@ -7664,6 +7708,11 @@ void draw_mods(LauncherModel* m, const LauncherTheme& th) {
         if (!mods) return;
         ImGui::Dummy(ImVec2(0, px(8)));
     }
+    /* Above the Features/Packages switch: a package that failed to parse is
+     * missing from BOTH views, so reporting it inside either one would leave
+     * the other silent. */
+    draw_mod_catalog_diagnostics(m, th);
+
     const bool feature_provider =
         mods->feature_count && mods->feature_get &&
         mods->feature_option_get && mods->feature_enable &&

@@ -533,6 +533,19 @@ typedef struct RecompLauncherCModProvider {
                                      const char* feature_id,
                                      const char* resource_id,
                                      const char* path);
+    /* Problems with the CATALOG rather than with any one feature: a manifest
+     * that could not be parsed, a legacy tree that could not be migrated.
+     *
+     * These need their own channel because the per-feature diagnostics above
+     * are keyed on (package_id, feature_id), and a package that failed to
+     * parse has neither -- which is why such failures used to be dropped in
+     * silence, leaving an author with a mod that simply did not exist and
+     * nothing anywhere explaining why. `resource` carries the path.
+     *
+     * Appended for ABI stability; NULL means the provider has none to report. */
+    int (*catalog_diagnostic_count)(void* ctx);
+    int (*catalog_diagnostic_get)(void* ctx, int index,
+                                  RecompLauncherCModDiagnostic* out);
 } RecompLauncherCModProvider;
 
 // Plain-C mirror of the launcher's internal settings (bools as int).
