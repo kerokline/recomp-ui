@@ -3494,16 +3494,25 @@ void launcher_model_begin_pad_capture(LauncherModel* m, int b) {
     launcher_model_begin_capture(m, b);
     if (m->capturing) m->capture_pad = true;   // begin_capture validated b
 }
+/* Which capture kind a PSX Map All run walks: the player's input SOURCE. A
+ * gamepad source captures pad fields, a keyboard source captures keys into
+ * the primary slot -- same walk order (kPsxGamepadBindOrder), same 24 steps.
+ * Read per step rather than latched so the two paths cannot disagree. */
+static bool psx_map_all_is_pad(const LauncherModel* m) {
+    const int p = clampi(m->cfg_player, 0, LNG_MAX_PLAYERS - 1);
+    return m->s.player_src[p] == 2 && m->s.player_gamepad_guid[p][0] != 0;
+}
 void launcher_model_begin_map_all(LauncherModel* m) {
     if (!m) return;
     const SystemProfile* prof = (const SystemProfile*)m->profile;
     if (!prof || !prof->id || strcmp(prof->id, "psx") != 0) return;
-    const int p = clampi(m->cfg_player, 0, LNG_MAX_PLAYERS - 1);
-    if (m->s.player_src[p] != 2 || !m->s.player_gamepad_guid[p][0]) return;
     m->map_all_active = true;
     m->map_all_wait_release = false;
     m->map_all_step = 0;
-    launcher_model_begin_pad_capture(m, kPsxGamepadBindOrder[0]);
+    if (psx_map_all_is_pad(m))
+        launcher_model_begin_pad_capture(m, kPsxGamepadBindOrder[0]);
+    else
+        launcher_model_begin_capture_slot(m, kPsxGamepadBindOrder[0], 0);
 }
 void launcher_model_map_all_advance(LauncherModel* m) {
     if (!m || !m->map_all_active) return;
@@ -3516,10 +3525,19 @@ void launcher_model_map_all_advance(LauncherModel* m) {
         m->capture_pad = false;
         return;
     }
-    /* Stay in pad-capture for the next button, but ignore input until the
-     * previous press/throw has been released (see try_capture). */
-    m->map_all_wait_release = true;
-    launcher_model_begin_pad_capture(m, kPsxGamepadBindOrder[m->map_all_step]);
+    const int b = kPsxGamepadBindOrder[m->map_all_step];
+    if (psx_map_all_is_pad(m)) {
+        /* Stay in pad-capture for the next button, but ignore input until the
+         * previous press/throw has been released (see try_capture). */
+        m->map_all_wait_release = true;
+        launcher_model_begin_pad_capture(m, b);
+    } else {
+        /* Keys commit on KEY_DOWN and the committing press is already
+         * consumed, so there is nothing to wait for -- the release-wait gate
+         * exists for held sticks/triggers, which keyboards do not have. */
+        m->map_all_wait_release = false;
+        launcher_model_begin_capture_slot(m, b, 0);
+    }
 }
 void launcher_model_begin_assist_capture(LauncherModel* m, int action,
                                          bool gamepad) {

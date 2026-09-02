@@ -40,6 +40,8 @@
 #define LNG_EVKEY(ev)    ((ev).key.keysym.sym)
 #define LNG_EVSCAN(ev)   ((ev).key.keysym.scancode)
 #define LNG_EVMOD(ev)    ((ev).key.keysym.mod)
+// key auto-repeat flag (same field name in SDL2/SDL3; Uint8 vs bool)
+#define LNG_EVKEYREPEAT(ev) ((ev).key.repeat != 0)
 // gamepad button event field: SDL3 ev.gbutton.button == SDL2 ev.cbutton.button
 #define LNG_EVGBTN(ev)   ((ev).cbutton.button)
 #define LNG_EVGBTNWHICH(ev) ((ev).cbutton.which)
@@ -72,6 +74,7 @@ typedef SDL_GameControllerAxis    LNG_GamepadAxis;
 #define LNG_EVKEY(ev)    ((ev).key.key)
 #define LNG_EVSCAN(ev)   ((ev).key.scancode)
 #define LNG_EVMOD(ev)    ((ev).key.mod)
+#define LNG_EVKEYREPEAT(ev) ((ev).key.repeat != 0)
 #define LNG_EVGBTN(ev)   ((ev).gbutton.button)
 #define LNG_EVGBTNWHICH(ev) ((ev).gbutton.which)
 #define LNG_EVGAXIS(ev)     ((ev).gaxis.axis)

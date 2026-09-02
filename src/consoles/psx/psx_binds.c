@@ -289,6 +289,15 @@ void rui_psx_binds_set_slot(const char* path, int player, int b, int slot, int s
     psx_kb_write_ini(path);
 }
 
+/* Save Profile (keyboard source): flush the whole in-memory map to
+ * keybinds.ini. Every rebind already persists on capture, so this is a
+ * confirm-and-flush -- it exists so the keyboard panel offers the same
+ * explicit "my layout is committed" action the gamepad panel does. */
+void rui_psx_binds_save(const char* path) {
+    if (!s_psx_binds_init) rui_psx_binds_init(path);
+    psx_kb_write_ini(path);
+}
+
 void rui_psx_binds_reset(const char* path, int player) {
     if (player < 0 || player >= PSX_BINDS_MAX_PLAYERS) return;
     if (!s_psx_binds_init) rui_psx_binds_init(path);
