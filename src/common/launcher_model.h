@@ -321,6 +321,7 @@ typedef struct {
     int  num_display_layouts;
     bool has_assist_tools;
     const char* assist_tools_note;
+    bool has_virtual_stylus;
     bool settings_bindings;
     const char* const* assist_binding_labels;
     int assist_binding_count;
@@ -801,6 +802,9 @@ int  launcher_model_visible_player_count(const LauncherModel* m);
 int  launcher_model_multitap_analog_available(const LauncherModel* m);
 int  launcher_model_multitap_analog_enabled(const LauncherModel* m);
 void launcher_model_toggle_multitap_analog(LauncherModel* m);
+int  launcher_model_virtual_stylus_available(const LauncherModel* m);
+int  launcher_model_virtual_stylus_enabled(const LauncherModel* m);
+void launcher_model_toggle_virtual_stylus(LauncherModel* m);
 
 // ---- N64 Transfer Pak slots (tpak_slots only; no-op guarded by slot range) ----
 // Adopt a GB cartridge ROM for one port's Transfer Pak. Re-runs the host's

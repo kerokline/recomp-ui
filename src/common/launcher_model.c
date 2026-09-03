@@ -369,6 +369,7 @@ void launcher_model_init(LauncherModel* m,
         m->num_display_layouts = game->num_display_layouts;
         m->has_assist_tools     = game->has_assist_tools != 0;
         m->assist_tools_note    = game->assist_tools_note;
+        m->has_virtual_stylus   = game->has_virtual_stylus != 0;
         m->settings_bindings    = game->settings_bindings != 0;
         m->assist_binding_labels = game->assist_binding_labels;
         m->assist_binding_count =
@@ -453,6 +454,12 @@ void launcher_model_init(LauncherModel* m,
                sizeof m->default_assist_key_bind);
         memcpy(m->default_assist_pad_bind, game->assist_default_pad_bind,
                sizeof m->default_assist_pad_bind);
+        for (int i = 0; i < m->assist_binding_count; ++i) {
+            if (m->s.assist_key_bind[i] == 0)
+                m->s.assist_key_bind[i] = m->default_assist_key_bind[i];
+            if (m->s.assist_pad_bind[i] == 0)
+                m->s.assist_pad_bind[i] = m->default_assist_pad_bind[i];
+        }
     } else {
         memcpy(m->default_assist_key_bind, m->s.assist_key_bind,
                sizeof m->default_assist_key_bind);
@@ -2901,6 +2908,21 @@ void launcher_model_toggle_multitap_analog(LauncherModel* m) {
     m->s.multitap_analog = m->s.multitap_analog ? 0 : 1;
 }
 
+int launcher_model_virtual_stylus_available(const LauncherModel* m) {
+    return m && m->has_virtual_stylus;
+}
+
+int launcher_model_virtual_stylus_enabled(const LauncherModel* m) {
+    return launcher_model_virtual_stylus_available(m) &&
+           m->s.virtual_stylus >= 0;
+}
+
+void launcher_model_toggle_virtual_stylus(LauncherModel* m) {
+    if (!launcher_model_virtual_stylus_available(m)) return;
+    m->s.virtual_stylus =
+        launcher_model_virtual_stylus_enabled(m) ? -1 : 1;
+}
+
 void launcher_model_new_memcard(LauncherModel* m, int slot, const char* path) {
     if (slot < 0 || slot > 1 || !path || !path[0]) return;
     if (recompui_memcard_format_file(path) != 0) return;  // I/O failure: leave as-is
@@ -3658,10 +3680,10 @@ void launcher_model_reset_player_bindings(LauncherModel* m, int player) {
            sizeof m->s.player_pad_bind[player]);
 }
 void launcher_model_reset_assist_bindings(LauncherModel* m) {
-    if (!m || !m->settings_bindings || !m->has_default_settings) return;
-    memcpy(m->s.assist_key_bind, m->default_settings.assist_key_bind,
+    if (!m || !m->settings_bindings) return;
+    memcpy(m->s.assist_key_bind, m->default_assist_key_bind,
            sizeof m->s.assist_key_bind);
-    memcpy(m->s.assist_pad_bind, m->default_settings.assist_pad_bind,
+    memcpy(m->s.assist_pad_bind, m->default_assist_pad_bind,
            sizeof m->s.assist_pad_bind);
 }
 void launcher_model_cancel_capture(LauncherModel* m) {
