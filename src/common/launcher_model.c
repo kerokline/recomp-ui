@@ -564,8 +564,33 @@ void launcher_model_init(LauncherModel* m,
                  * persisted value. The mod requests it at runtime instead. */
                 m->s.pad_mode[p] = 1;
             }
-            /* Keyboard cannot drive Analog/Hybrid — force D-Pad. */
-            if (m->s.player_src[p] == 1 &&
+            /* Keyboard cannot drive Analog/Hybrid — present D-Pad.
+             *
+             * This is a PRESENTATION default, not a hardware clamp. The host
+             * already short-circuits keyboard seats at the point of use:
+             * effective_player_mode() in psxrecomp's runtime/src/main.cpp
+             * reports DIGITAL for any seat whose kind is keyboard, whatever
+             * the seat's stored mode says. So nothing downstream depends on
+             * this value being 2 — it only decides what the selector shows.
+             *
+             * Which is why it must NOT run when the mode is locked. A locked
+             * title (game.toml [controller] lock_mode) hides the selector
+             * entirely, so once locked_pad_mode is overwritten with D-Pad
+             * there is no control left that can put it back — not the
+             * selector (hidden), not launcher_model_set_pad_mode() and not
+             * apply_default_pad_mode_for_source(), both of which correctly
+             * refuse to touch a locked mode. And a release install defaults
+             * Player 1's device to Keyboard, so EVERY fresh install of an
+             * Analog-locked dual-analog title (Ape Escape) went through here
+             * and came out digital-for-good: the game saw a plain SCPH-1080,
+             * right stick dead and left stick folded onto the D-pad, with no
+             * UI to correct it.
+             *
+             * Leaving the locked mode intact costs nothing while the keyboard
+             * is driving the seat, and is already right the moment the player
+             * attaches a real pad. */
+            if (m->pad_mode_selectable &&
+                m->s.player_src[p] == 1 &&
                 !(pm_spec && pm_spec->modes && pm_spec->mode_count > 0))
                 m->s.pad_mode[p] = 2;
         }
