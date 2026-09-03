@@ -160,6 +160,42 @@ if(BUILD_TESTING)
         COMMAND $<TARGET_FILE:recomp-ui-launcher-discs-test>
                 "${CMAKE_CURRENT_BINARY_DIR}")
 
+    # First-run wizard: staging a retail BIOS that has no linked backend.
+    # Same include-the-TU shape as the discs test above.
+    add_executable(recomp-ui-launcher-setup-bios-test
+        tests/launcher_setup_bios_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-setup-bios-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-setup-bios-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-setup-bios
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-setup-bios-test>
+                "${CMAKE_CURRENT_BINARY_DIR}")
+
+    # Per-seat pad_mode resolution: a locked mode (game.toml lock_mode) must
+    # survive the keyboard-has-no-sticks presentation default, because the
+    # selector that could undo it is hidden. Same include-the-TU shape as the
+    # two tests above.
+    add_executable(recomp-ui-launcher-pad-mode-test
+        tests/launcher_pad_mode_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-pad-mode-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-pad-mode-test PRIVATE
+        ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-pad-mode
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-pad-mode-test>)
+
     add_executable(recomp-ui-psx-profile-test
         tests/psx_profile_test.c)
     target_include_directories(recomp-ui-psx-profile-test PRIVATE
@@ -167,6 +203,14 @@ if(BUILD_TESTING)
     add_test(
         NAME recomp-ui-psx-profile
         COMMAND $<TARGET_FILE:recomp-ui-psx-profile-test>)
+
+    add_executable(recomp-ui-nds-profile-test
+        tests/nds_profile_test.c)
+    target_include_directories(recomp-ui-nds-profile-test PRIVATE
+        src src/common src/consoles/nds)
+    add_test(
+        NAME recomp-ui-nds-profile
+        COMMAND $<TARGET_FILE:recomp-ui-nds-profile-test>)
 
     add_executable(recomp-runtime-ui-imgui-test
         tests/runtime_ui_imgui_test.cpp

@@ -1018,6 +1018,18 @@ void launcher_binds_save_psx_gamepad(LauncherModel* m, int player) {
     reload_player_display(m, player);
 }
 
+/* Save Profile, keyboard source: the keyboard map has no per-device registry
+ * the way a GUID profile does -- every capture already wrote keybinds.ini --
+ * so this flushes the store and refreshes the display strings. It exists so
+ * the KEYBOARD BINDINGS card offers the same explicit commit the GAMEPAD
+ * BINDINGS card does, rather than a button that is present but does nothing. */
+void launcher_binds_save_psx_keyboard(LauncherModel* m, int player) {
+    if (!m || !is_psx_profile(m)) return;
+    if (player < 1 || player > LNG_MAX_PLAYERS) return;
+    rui_psx_binds_save(keybinds_file_path());
+    reload_player_display(m, player);
+}
+
 void launcher_binds_delete_psx_gamepad(LauncherModel* m, int player) {
     if (!m || !is_psx_profile(m)) return;
     if (player < 1 || player > LNG_MAX_PLAYERS) return;

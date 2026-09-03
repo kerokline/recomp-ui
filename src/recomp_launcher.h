@@ -47,6 +47,8 @@ extern "C" {
 #define RECOMP_LAUNCHER_HAS_REWIND_ENABLED 1
 /* Host may #ifdef this when reading Settings.vsync. */
 #define RECOMP_LAUNCHER_HAS_VSYNC 1
+/* Host may #ifdef this when reading Settings.virtual_stylus. */
+#define RECOMP_LAUNCHER_HAS_VIRTUAL_STYLUS 1
 #define RECOMP_LAUNCHER_MAX_BINDINGS 24
 #define RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS 8
 
@@ -363,6 +365,14 @@ typedef struct RecompLauncherCModPackage {
 /* A package may contribute any number of independently configurable features.
  * Feature identity is the (package_id, id) pair; feature ids only need to be
  * unique within their owning package. */
+/* How finished a feature is. Zero is stable, so a provider that predates this
+ * field reports every feature as stable under zero-init. */
+typedef enum RecompLauncherCModChannel {
+    RECOMP_MOD_CHANNEL_STABLE = 0,
+    RECOMP_MOD_CHANNEL_EXPERIMENTAL = 1,
+    RECOMP_MOD_CHANNEL_DEVELOPER = 2,
+} RecompLauncherCModChannel;
+
 typedef struct RecompLauncherCModFeature {
     char id[RECOMP_LAUNCHER_MOD_ID_MAX];
     char package_id[RECOMP_LAUNCHER_MOD_ID_MAX];
@@ -388,6 +398,11 @@ typedef struct RecompLauncherCModFeature {
      * Providers still expose them so an explicitly-enabled hidden feature can
      * be shown and turned off again. */
     int  hidden;
+    /* RecompLauncherCModChannel. Stable is 0, so zero-init and older providers
+     * both mean "stable" and need no special case. Developer-channel features
+     * never reach a shipped build at all -- when one appears here, this is a
+     * local developer build. Appended for ABI stability. */
+    int  channel;
 } RecompLauncherCModFeature;
 
 typedef struct RecompLauncherCModOption {
@@ -520,6 +535,19 @@ typedef struct RecompLauncherCModProvider {
                                      const char* feature_id,
                                      const char* resource_id,
                                      const char* path);
+    /* Problems with the CATALOG rather than with any one feature: a manifest
+     * that could not be parsed, a legacy tree that could not be migrated.
+     *
+     * These need their own channel because the per-feature diagnostics above
+     * are keyed on (package_id, feature_id), and a package that failed to
+     * parse has neither -- which is why such failures used to be dropped in
+     * silence, leaving an author with a mod that simply did not exist and
+     * nothing anywhere explaining why. `resource` carries the path.
+     *
+     * Appended for ABI stability; NULL means the provider has none to report. */
+    int (*catalog_diagnostic_count)(void* ctx);
+    int (*catalog_diagnostic_get)(void* ctx, int index,
+                                  RecompLauncherCModDiagnostic* out);
 } RecompLauncherCModProvider;
 
 // Plain-C mirror of the launcher's internal settings (bools as int).
@@ -787,6 +815,11 @@ struct RecompLauncherCSettings {
      * effective range is 1..100. Stored as a percent (not 0..1) so the whole
      * settings struct stays plain-int. Appended additively. */
     int  scanline_strength_pct;
+    /* NDS virtual stylus overlay. 0 is unset and means the launcher default
+     * for the console, which is enabled; 1 is explicitly enabled, -1 is
+     * explicitly disabled. Bindings live in assist_key_bind/assist_pad_bind so
+     * they appear in the Controller page with the rest of host-owned binds. */
+    int  virtual_stylus;
 };
 
 /* Values for RecompLauncherCSettings.vsync (1-based; 0 = unset). */
@@ -1376,6 +1409,9 @@ typedef struct RecompLauncherCGameInfo {
      * for a console whose runtime implements it (PSX); everything else leaves
      * this 0 and the rows are absent. Appended for ABI stability. */
     int has_scanlines;
+    /* NDS input convenience setting. When set, Settings shows a Virtual Stylus
+     * opt-out and the Controller page may expose host-owned bindings for it. */
+    int has_virtual_stylus;
 } RecompLauncherCGameInfo;
 
 /* recomp_launcher_run_window return codes */

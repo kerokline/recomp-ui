@@ -370,6 +370,7 @@ void launcher_model_init(LauncherModel* m,
         m->num_display_layouts = game->num_display_layouts;
         m->has_assist_tools     = game->has_assist_tools != 0;
         m->assist_tools_note    = game->assist_tools_note;
+        m->has_virtual_stylus   = game->has_virtual_stylus != 0;
         m->settings_bindings    = game->settings_bindings != 0;
         m->assist_binding_labels = game->assist_binding_labels;
         m->assist_binding_count =
@@ -454,6 +455,12 @@ void launcher_model_init(LauncherModel* m,
                sizeof m->default_assist_key_bind);
         memcpy(m->default_assist_pad_bind, game->assist_default_pad_bind,
                sizeof m->default_assist_pad_bind);
+        for (int i = 0; i < m->assist_binding_count; ++i) {
+            if (m->s.assist_key_bind[i] == 0)
+                m->s.assist_key_bind[i] = m->default_assist_key_bind[i];
+            if (m->s.assist_pad_bind[i] == 0)
+                m->s.assist_pad_bind[i] = m->default_assist_pad_bind[i];
+        }
     } else {
         memcpy(m->default_assist_key_bind, m->s.assist_key_bind,
                sizeof m->default_assist_key_bind);
@@ -558,8 +565,33 @@ void launcher_model_init(LauncherModel* m,
                  * persisted value. The mod requests it at runtime instead. */
                 m->s.pad_mode[p] = 1;
             }
-            /* Keyboard cannot drive Analog/Hybrid — force D-Pad. */
-            if (m->s.player_src[p] == 1 &&
+            /* Keyboard cannot drive Analog/Hybrid — present D-Pad.
+             *
+             * This is a PRESENTATION default, not a hardware clamp. The host
+             * already short-circuits keyboard seats at the point of use:
+             * effective_player_mode() in psxrecomp's runtime/src/main.cpp
+             * reports DIGITAL for any seat whose kind is keyboard, whatever
+             * the seat's stored mode says. So nothing downstream depends on
+             * this value being 2 — it only decides what the selector shows.
+             *
+             * Which is why it must NOT run when the mode is locked. A locked
+             * title (game.toml [controller] lock_mode) hides the selector
+             * entirely, so once locked_pad_mode is overwritten with D-Pad
+             * there is no control left that can put it back — not the
+             * selector (hidden), not launcher_model_set_pad_mode() and not
+             * apply_default_pad_mode_for_source(), both of which correctly
+             * refuse to touch a locked mode. And a release install defaults
+             * Player 1's device to Keyboard, so EVERY fresh install of an
+             * Analog-locked dual-analog title (Ape Escape) went through here
+             * and came out digital-for-good: the game saw a plain SCPH-1080,
+             * right stick dead and left stick folded onto the D-pad, with no
+             * UI to correct it.
+             *
+             * Leaving the locked mode intact costs nothing while the keyboard
+             * is driving the seat, and is already right the moment the player
+             * attaches a real pad. */
+            if (m->pad_mode_selectable &&
+                m->s.player_src[p] == 1 &&
                 !(pm_spec && pm_spec->modes && pm_spec->mode_count > 0))
                 m->s.pad_mode[p] = 2;
         }
@@ -1963,6 +1995,12 @@ void launcher_model_set_bios_path(LauncherModel* m, const char* path) {
     } else {
         m->s.bios_path[0] = '\0';
     }
+    /* An outright set replaces any pick staged for Generate & rebuild, so the
+     * revert target must go with it (otherwise a later failed job would
+     * restore a path the player already moved away from). */
+    m->bios_switch_uncommitted = false;
+    m->bios_pending_path[0] = '\0';
+    m->bios_revert_path[0] = '\0';
     launcher_model_refresh_bios_status(m);
     lm_persist_setup_sidecars(m);
 }
@@ -2047,8 +2085,13 @@ static void lm_bios_kick_generate(LauncherModel* m) {
         if (m->toolchain_is_ready_cb && m->toolchain_is_ready_cb())
             m->setup_tc_ready = true;
         if (!m->setup_tc_ready) {
-            lm_bios_revert_uncommitted(m);
+            /* Missing build tools is a prerequisite, not a failed switch: when
+             * we can send the player to wizard page 0 to install them, keep
+             * their BIOS pick staged so Generate resumes with it. Only drop it
+             * when there is no wizard to come back to. */
             lm_restore_setup_wizard_after_bios(m, 0);
+            if (!m->setup_wizard_open)
+                lm_bios_revert_uncommitted(m);
             return;
         }
     }
@@ -2128,10 +2171,32 @@ void launcher_model_request_bios_path(LauncherModel* m, const char* path) {
         safe_copy(m->setup_bios_detail, sizeof(m->setup_bios_detail),
                   "This retail BIOS is not compiled into the current build. "
                   "Generate & rebuild to add it (or Use OpenBIOS).");
-    /* Do not nest Switch BIOS? under First-run setup — ImGui soft-locks. */
+    /* Picked from inside first-run setup: stage it in place and let the wizard
+     * turn its own primary button into Generate & rebuild. Popping "Switch
+     * BIOS?" here would hide the disc rows the player still has to fill in —
+     * and its Generate button is disabled until a disc is picked, so the
+     * modal was a dead end for anyone who chose the BIOS first. */
     if (m->setup_wizard_open) {
-        m->setup_wizard_suspended_for_bios = true;
-        m->setup_wizard_open = false;
+        /* Only the FIRST staged pick records the revert target — picking a
+         * second unlinked dump must not make the first one the fallback. */
+        if (!m->bios_switch_uncommitted)
+            safe_copy(m->bios_revert_path, sizeof(m->bios_revert_path),
+                      m->s.bios_path);
+        safe_copy(m->s.bios_path, sizeof(m->s.bios_path), normalized);
+        m->bios_switch_uncommitted = true;
+        /* Re-verify against the staged path so setup_bios_needs_regen reflects
+         * the new pick; keep the explanatory detail when the host has none. */
+        {
+            char detail[sizeof(m->setup_bios_detail)];
+            safe_copy(detail, sizeof(detail), m->setup_bios_detail);
+            launcher_model_refresh_bios_status(m);
+            if (!m->setup_bios_detail[0])
+                safe_copy(m->setup_bios_detail, sizeof(m->setup_bios_detail),
+                          detail);
+        }
+        /* Not persisted: bios.cfg still names the BIOS this binary can run
+         * until Generate & rebuild actually succeeds. */
+        return;
     }
     m->bios_confirm_open = true;
 }
@@ -2211,6 +2276,44 @@ bool launcher_model_setup_media_confirm_only(const LauncherModel* m) {
      * normal media picker copy, not the "confirm cleared paths" prompt. */
     if (!m->prepare_with_progress_cb && !m->prepare_disc_cb) return false;
     return true;
+}
+
+bool launcher_model_setup_needs_bios_regen(const LauncherModel* m) {
+    if (!m || !m->setup_wizard_supported || !m->has_bios) return false;
+    /* OpenBIOS (empty path) is always a hot-swap. */
+    if (!m->s.bios_path[0]) return false;
+    return m->setup_bios_needs_regen;
+}
+
+const char* launcher_model_setup_bios_regen_blocker(const LauncherModel* m) {
+    if (!m || !launcher_model_setup_needs_bios_regen(m)) return NULL;
+    if (m->setup_preparing) return "Wait for the current job to finish";
+    if (!m->prepare_with_progress_cb && !m->prepare_disc_cb)
+        return "Generate is unavailable (project/SDK not found)";
+    if (!m->rom_present || !m->rom_full[0] || strcmp(m->rom_size, "--") == 0)
+        return "Select a disc image first";
+    if (m->num_discs > 1 &&
+        launcher_model_discs_ready_count(m) < m->num_discs)
+        return "Locate every disc of the set first";
+    if (m->profile && m->profile->verify.mode == 1 &&
+        (m->verify.verdict == 0 || m->verify.verdict == 3))
+        return "Disc image not accepted";
+    return NULL;
+}
+
+bool launcher_model_can_start_bios_regen(const LauncherModel* m) {
+    return launcher_model_setup_needs_bios_regen(m) &&
+           launcher_model_setup_bios_regen_blocker(m) == NULL;
+}
+
+void launcher_model_setup_start_bios_regen(LauncherModel* m) {
+    if (!launcher_model_can_start_bios_regen(m)) return;
+    /* Kicked from inside the wizard: a failed job — or a toolchain that still
+     * has to be installed — must land back on the wizard, not a bare
+     * dashboard the player never reached. */
+    if (m->setup_wizard_open)
+        m->setup_wizard_suspended_for_bios = true;
+    lm_bios_kick_generate(m);
 }
 
 bool launcher_model_can_finish_setup(const LauncherModel* m) {
@@ -2849,6 +2952,21 @@ int launcher_model_multitap_analog_enabled(const LauncherModel* m) {
 void launcher_model_toggle_multitap_analog(LauncherModel* m) {
     if (!m || !launcher_model_multitap_analog_available(m)) return;
     m->s.multitap_analog = m->s.multitap_analog ? 0 : 1;
+}
+
+int launcher_model_virtual_stylus_available(const LauncherModel* m) {
+    return m && m->has_virtual_stylus;
+}
+
+int launcher_model_virtual_stylus_enabled(const LauncherModel* m) {
+    return launcher_model_virtual_stylus_available(m) &&
+           m->s.virtual_stylus >= 0;
+}
+
+void launcher_model_toggle_virtual_stylus(LauncherModel* m) {
+    if (!launcher_model_virtual_stylus_available(m)) return;
+    m->s.virtual_stylus =
+        launcher_model_virtual_stylus_enabled(m) ? -1 : 1;
 }
 
 void launcher_model_new_memcard(LauncherModel* m, int slot, const char* path) {
@@ -3515,16 +3633,25 @@ void launcher_model_begin_pad_capture(LauncherModel* m, int b) {
     launcher_model_begin_capture(m, b);
     if (m->capturing) m->capture_pad = true;   // begin_capture validated b
 }
+/* Which capture kind a PSX Map All run walks: the player's input SOURCE. A
+ * gamepad source captures pad fields, a keyboard source captures keys into
+ * the primary slot -- same walk order (kPsxGamepadBindOrder), same 24 steps.
+ * Read per step rather than latched so the two paths cannot disagree. */
+static bool psx_map_all_is_pad(const LauncherModel* m) {
+    const int p = clampi(m->cfg_player, 0, LNG_MAX_PLAYERS - 1);
+    return m->s.player_src[p] == 2 && m->s.player_gamepad_guid[p][0] != 0;
+}
 void launcher_model_begin_map_all(LauncherModel* m) {
     if (!m) return;
     const SystemProfile* prof = (const SystemProfile*)m->profile;
     if (!prof || !prof->id || strcmp(prof->id, "psx") != 0) return;
-    const int p = clampi(m->cfg_player, 0, LNG_MAX_PLAYERS - 1);
-    if (m->s.player_src[p] != 2 || !m->s.player_gamepad_guid[p][0]) return;
     m->map_all_active = true;
     m->map_all_wait_release = false;
     m->map_all_step = 0;
-    launcher_model_begin_pad_capture(m, kPsxGamepadBindOrder[0]);
+    if (psx_map_all_is_pad(m))
+        launcher_model_begin_pad_capture(m, kPsxGamepadBindOrder[0]);
+    else
+        launcher_model_begin_capture_slot(m, kPsxGamepadBindOrder[0], 0);
 }
 void launcher_model_map_all_advance(LauncherModel* m) {
     if (!m || !m->map_all_active) return;
@@ -3537,10 +3664,19 @@ void launcher_model_map_all_advance(LauncherModel* m) {
         m->capture_pad = false;
         return;
     }
-    /* Stay in pad-capture for the next button, but ignore input until the
-     * previous press/throw has been released (see try_capture). */
-    m->map_all_wait_release = true;
-    launcher_model_begin_pad_capture(m, kPsxGamepadBindOrder[m->map_all_step]);
+    const int b = kPsxGamepadBindOrder[m->map_all_step];
+    if (psx_map_all_is_pad(m)) {
+        /* Stay in pad-capture for the next button, but ignore input until the
+         * previous press/throw has been released (see try_capture). */
+        m->map_all_wait_release = true;
+        launcher_model_begin_pad_capture(m, b);
+    } else {
+        /* Keys commit on KEY_DOWN and the committing press is already
+         * consumed, so there is nothing to wait for -- the release-wait gate
+         * exists for held sticks/triggers, which keyboards do not have. */
+        m->map_all_wait_release = false;
+        launcher_model_begin_capture_slot(m, b, 0);
+    }
 }
 void launcher_model_begin_assist_capture(LauncherModel* m, int action,
                                          bool gamepad) {
@@ -3590,10 +3726,10 @@ void launcher_model_reset_player_bindings(LauncherModel* m, int player) {
            sizeof m->s.player_pad_bind[player]);
 }
 void launcher_model_reset_assist_bindings(LauncherModel* m) {
-    if (!m || !m->settings_bindings || !m->has_default_settings) return;
-    memcpy(m->s.assist_key_bind, m->default_settings.assist_key_bind,
+    if (!m || !m->settings_bindings) return;
+    memcpy(m->s.assist_key_bind, m->default_assist_key_bind,
            sizeof m->s.assist_key_bind);
-    memcpy(m->s.assist_pad_bind, m->default_settings.assist_pad_bind,
+    memcpy(m->s.assist_pad_bind, m->default_assist_pad_bind,
            sizeof m->s.assist_pad_bind);
 }
 void launcher_model_cancel_capture(LauncherModel* m) {

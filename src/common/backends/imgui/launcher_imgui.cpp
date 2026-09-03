@@ -2972,15 +2972,18 @@ void panel_audio_draw(LauncherModel* m, const LauncherTheme* th) {
 // for PSX; shown when the title can use multitap seats or the analog hack.
 int avail_input(const LauncherModel* m) {
     return launcher_model_multitap_available(m) ||
-           launcher_model_multitap_analog_available(m);
+           launcher_model_multitap_analog_available(m) ||
+           launcher_model_virtual_stylus_available(m);
 }
 void draw_input_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("INPUT");
+    bool previous_row = false;
     if (launcher_model_multitap_available(m)) {
         bool on = launcher_model_multitap_enabled(m) != 0;
         if (ImGui::Checkbox("Multitap", &on) &&
             (on ? 1 : 0) != launcher_model_multitap_enabled(m))
             launcher_model_toggle_multitap(m);
+        previous_row = true;
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
             ImGui::BeginTooltip();
             ImGui::PushTextWrapPos(px(320));
@@ -2993,12 +2996,13 @@ void draw_input_controls(LauncherModel* m, const LauncherTheme& th) {
         }
     }
     if (launcher_model_multitap_analog_available(m)) {
-        if (launcher_model_multitap_available(m))
+        if (previous_row)
             ImGui::Dummy(ImVec2(0, px(th.spacing_sm)));
         bool on = launcher_model_multitap_analog_enabled(m) != 0;
         if (ImGui::Checkbox("Multitap analog (hack)", &on) &&
             (on ? 1 : 0) != launcher_model_multitap_analog_enabled(m))
             launcher_model_toggle_multitap_analog(m);
+        previous_row = true;
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
             ImGui::BeginTooltip();
             ImGui::PushTextWrapPos(px(320));
@@ -3009,6 +3013,14 @@ void draw_input_controls(LauncherModel* m, const LauncherTheme& th) {
             ImGui::PopTextWrapPos();
             ImGui::EndTooltip();
         }
+    }
+    if (launcher_model_virtual_stylus_available(m)) {
+        if (previous_row)
+            ImGui::Dummy(ImVec2(0, px(th.spacing_sm)));
+        bool on = launcher_model_virtual_stylus_enabled(m) != 0;
+        if (ImGui::Checkbox("Virtual Stylus", &on) &&
+            (on ? 1 : 0) != launcher_model_virtual_stylus_enabled(m))
+            launcher_model_toggle_virtual_stylus(m);
     }
 }
 void panel_input_draw(LauncherModel* m, const LauncherTheme* th) {
@@ -3573,32 +3585,38 @@ void draw_controller_assist_shortcuts(LauncherModel* m,
     ImGui::TextColored(col(th.text_muted),
                        m->has_assist_tools
                            ? "(global; requires Assist Tools)"
-                           : "(button chords supported)");
-    if (ImGui::BeginTable("controller_assist_binds", 2,
-                          ImGuiTableFlags_SizingStretchSame)) {
-        for (int action = 0;
-             action < m->assist_binding_count && action < 2; ++action) {
-            ImGui::TableNextColumn();
+                           : "(keyboard and controller)");
+    if (ImGui::BeginTable("controller_assist_binds", 3,
+                          ImGuiTableFlags_SizingStretchProp |
+                              ImGuiTableFlags_RowBg)) {
+        ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch,
+                                1.1f);
+        ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthStretch,
+                                1.0f);
+        ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthStretch,
+                                1.0f);
+        ImGui::TableHeadersRow();
+        for (int action = 0; action < m->assist_binding_count; ++action) {
             ImGui::PushID(action);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted(m->assist_binding_labels[action]);
-            ImGui::SameLine(0, px(8));
-            if (m->has_assist_tools) {
-                bool capture_key = m->capturing && m->capture_assist &&
-                                   !m->capture_pad && m->capture_btn == action;
-                if (ImGui::Button(
-                        capture_key ? "[ key... ]" :
-                            settings_key_label(m->s.assist_key_bind[action]),
-                        ImVec2(px(105), 0)))
-                    launcher_model_begin_assist_capture(m, action, false);
-                ImGui::SameLine(0, px(5));
-            }
+            ImGui::TableSetColumnIndex(1);
+            bool capture_key = m->capturing && m->capture_assist &&
+                               !m->capture_pad && m->capture_btn == action;
+            if (ImGui::Button(
+                    capture_key ? "[ key... ]" :
+                        settings_key_label(m->s.assist_key_bind[action]),
+                    ImVec2(-FLT_MIN, 0)))
+                launcher_model_begin_assist_capture(m, action, false);
+            ImGui::TableSetColumnIndex(2);
             bool capture_pad = m->capturing && m->capture_assist &&
                                m->capture_pad && m->capture_btn == action;
             char pad[48];
             settings_pad_label(m->s.assist_pad_bind[action], pad, sizeof pad);
             if (ImGui::Button(capture_pad ? "[ button... ]" : pad,
-                              ImVec2(px(m->has_assist_tools ? 135 : 170), 0)))
+                              ImVec2(-FLT_MIN, 0)))
                 launcher_model_begin_assist_capture(m, action, true);
             ImGui::PopID();
         }
@@ -3992,20 +4010,165 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
         const ControllerSpec& spec = prof->controller;
         const bool is_psx = prof && prof->id && !strcmp(prof->id, "psx");
 
-        // ---- PSX: Gamepad Bindings (per selected SDL GUID) -----------------
-        // Replaces the keyboard grid on Configure. Column-major layout
-        // (top→bottom then next column) matching kPsxGamepadBindOrder.
+        // ---- PSX: bindings for whatever the player's input SOURCE is -------
+        // Column-major layout (top→bottom then next column) matching
+        // kPsxGamepadBindOrder, for the gamepad grid and the keyboard grid
+        // alike so switching source does not reshuffle the vocabulary.
+        //
+        // The gamepad grid used to be the ONLY thing this branch drew, and it
+        // renders only for a selected SDL GUID -- so picking Keyboard as the
+        // input source left the panel saying "select a gamepad" and offered no
+        // way to rebind the keyboard at all. Every other console reaches the
+        // generic keyboard grid in the else-branch below; PSX diverts here and
+        // so had lost it. Nothing else was missing: launcher_binds.c already
+        // fills m->binds / m->binds_alt for PSX from psxrecomp's own
+        // 24-scancode keybinds.ini, launcher_binds_set_button_slot() already
+        // persists back to it, launcher_binds_reset_player() already resets the
+        // keyboard map when no gamepad is selected, and the capture handler
+        // already accepts keys and mouse buttons into either slot.
         if (is_psx) {
-            ImGui::PushStyleColor(ImGuiCol_Text, col(th.accent2));
-            ImGui::Text("GAMEPAD BINDINGS - PLAYER %d", p + 1);
-            ImGui::PopStyleColor();
-            ImGui::Spacing();
-
             const bool has_pad_src = m->s.player_src[p] == 2 &&
                                      m->s.player_gamepad_guid[p][0];
+
+            ImGui::PushStyleColor(ImGuiCol_Text, col(th.accent2));
+            if (has_pad_src) ImGui::Text("GAMEPAD BINDINGS - PLAYER %d", p + 1);
+            else             ImGui::Text("KEYBOARD BINDINGS - PLAYER %d", p + 1);
+            ImGui::PopStyleColor();
+            // The alternate slot has no chip of its own (see the grid below);
+            // the heading carries its only discoverable mention, so the button
+            // row stays identical to the gamepad card's.
             if (!has_pad_src) {
+                ImGui::SameLine();
                 ImGui::TextColored(col(th.text_muted),
-                    "Select a gamepad as Input source to configure bindings.");
+                    "  (right-click a bind for an alternate)");
+            }
+            ImGui::Spacing();
+
+            if (!has_pad_src) {
+                // Same shape as the gamepad grid below: a fixed 3x8, filled
+                // column-major down kPsxGamepadBindOrder, one muted LABEL and
+                // one bind CHIP per row. Reading a bind list is a vertical
+                // scan, so the eye must go top->bottom within a column, not
+                // left->right across three unrelated inputs; and switching
+                // Input source must not reshuffle the vocabulary under the
+                // player's cursor.
+                //
+                // The keyboard store keeps an ALTERNATE bind per input
+                // (slot 1, also where a mouse button goes) which this grid no
+                // longer shows -- one chip is what parity with the gamepad
+                // card costs. Existing alternates in keybinds.ini are left
+                // untouched and still assert at runtime; they are just not
+                // editable from here.
+                float label_col_w = px(90.0f);
+                for (int i = 0; i < LNG_PSX_PAD_BUTTON_COUNT; ++i) {
+                    float w = ImGui::CalcTextSize(spec.buttons[i].label).x + px(20.0f);
+                    if (w > label_col_w) label_col_w = w;
+                }
+                const float chip_w = px(140.0f);
+                const float cell_w = label_col_w + chip_w + px(16.0f);
+                if (ImGui::BeginTable("psx_key_binds", LNG_PSX_GAMEPAD_BIND_COLS,
+                                      ImGuiTableFlags_SizingFixedFit)) {
+                    for (int c = 0; c < LNG_PSX_GAMEPAD_BIND_COLS; ++c)
+                        ImGui::TableSetupColumn(nullptr,
+                            ImGuiTableColumnFlags_WidthFixed, cell_w);
+                    for (int row = 0; row < LNG_PSX_GAMEPAD_BIND_ROWS; ++row) {
+                        for (int c = 0; c < LNG_PSX_GAMEPAD_BIND_COLS; ++c) {
+                            const int order_i = c * LNG_PSX_GAMEPAD_BIND_ROWS + row;
+                            const int b = kPsxGamepadBindOrder[order_i];
+                            ImGui::TableNextColumn();
+                            ImGui::PushID(b);
+                            ImGui::AlignTextToFramePadding();
+                            ImGui::TextColored(col(th.text_muted), "%s",
+                                               spec.buttons[b].label);
+                            ImGui::SameLine(label_col_w);
+                            const bool cap = m->capturing && !m->capture_pad &&
+                                             m->capture_btn == b;
+                            const bool cap_alt = cap && m->capture_slot == 1;
+                            const char* lbl = m->binds[p][b];
+                            if (!lbl || !lbl[0]) lbl = "(unbound)";
+                            const char* alt = m->binds_alt[p][b];
+                            const bool has_alt = alt && alt[0] &&
+                                                 strcmp(alt, "(unbound)") != 0;
+                            const char* chip = cap_alt ? "[ press an alt... ]"
+                                             : cap     ? "[ press a key... ]"
+                                                       : lbl;
+                            if (cap) ImGui::PushStyleColor(ImGuiCol_Button, col(th.accent));
+                            if (ImGui::Button(chip, ImVec2(chip_w, 0))) {
+                                m->map_all_active = false;
+                                launcher_model_begin_capture_slot(m, b, 0);
+                            }
+                            if (cap) ImGui::PopStyleColor();
+                            // Right-click captures into slot 1 -- the ALTERNATE
+                            // bind, and the only slot a mouse button can go in.
+                            // Fire on RELEASE, not IsItemClicked (which fires on
+                            // press): try_capture swallows every mouse event once
+                            // capturing, so a press-triggered capture would eat
+                            // its own button-up and leave ImGui believing the
+                            // right button was held down forever.
+                            if (ImGui::IsItemHovered() &&
+                                ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
+                                m->map_all_active = false;
+                                launcher_model_begin_capture_slot(m, b, 1);
+                            }
+                            // A bind with an alternate carries an accent dot in
+                            // the chip's corner: without it the second bind is
+                            // invisible, and a chip with no alternate stays
+                            // pixel-identical to the gamepad card's.
+                            if (has_alt && !cap) {
+                                const ImVec2 mn = ImGui::GetItemRectMin();
+                                const ImVec2 mx = ImGui::GetItemRectMax();
+                                ImGui::GetWindowDrawList()->AddCircleFilled(
+                                    ImVec2(mx.x - px(6.0f), mn.y + px(6.0f)),
+                                    px(2.5f), ImGui::GetColorU32(col(th.accent2)));
+                            }
+                            if (ImGui::IsItemHovered()) {
+                                if (has_alt)
+                                    ImGui::SetTooltip(
+                                        "Alternate: %s\n"
+                                        "Right-click to rebind it (key or mouse button)",
+                                        alt);
+                                else
+                                    ImGui::SetTooltip(
+                                        "No alternate bound\n"
+                                        "Right-click to set one (key or mouse button)");
+                            }
+                            ImGui::PopID();
+                        }
+                    }
+                    ImGui::EndTable();
+                }
+                ImGui::Spacing();
+                if (ImGui::Button("Map All Bindings"))
+                    launcher_model_begin_map_all(m);
+                ImGui::SameLine();
+                if (ImGui::Button("Reset to Defaults"))
+                    launcher_binds_reset_player(m, m->cfg_player + 1);
+                // Save Profile -- keyboard captures already write keybinds.ini
+                // on every rebind, so this is the explicit commit + flush.
+                static double s_kb_profile_saved_until = 0.0;
+                {
+                    const float save_w = px(120.0f);
+                    const float right = ImGui::GetWindowContentRegionMax().x;
+                    ImGui::SameLine(right - save_w);
+                    if (ImGui::Button("Save Profile", ImVec2(save_w, 0))) {
+                        launcher_binds_save_psx_keyboard(m, p + 1);
+                        s_kb_profile_saved_until = ImGui::GetTime() + 2.5;
+                    }
+                }
+                if (m->capturing && !m->capture_pad) {
+                    const char* label =
+                        (m->capture_btn >= 0 &&
+                         m->capture_btn < LNG_PSX_PAD_BUTTON_COUNT)
+                            ? spec.buttons[m->capture_btn].label : "?";
+                    ImGui::TextColored(col(th.warn),
+                        "Map %s to %s (Esc cancels)%s",
+                        m->capture_slot == 1 ? "an alternate key / mouse button"
+                                             : "a key",
+                        label,
+                        m->map_all_active ? " — Map All" : "");
+                }
+                if (ImGui::GetTime() < s_kb_profile_saved_until)
+                    ImGui::TextColored(col(th.accent2), "Input Profile Saved!");
             } else {
                 float label_col_w = px(90.0f);
                 for (int i = 0; i < LNG_PSX_PAD_BUTTON_COUNT; ++i) {
@@ -6520,6 +6683,51 @@ static bool mod_text_matches(const char* search, const RecompLauncherCModPackage
     return haystack.find(needle) != std::string::npos;
 }
 
+/* One channel vocabulary, used everywhere a feature is named.
+ *
+ * A stable feature gets NO tag. The absence is the stable case, and tagging
+ * every row would bury the two that actually need saying something. The short
+ * form is for the list, where rows are 330px wide and already carry a name and
+ * a package; the long form and the explanation are for the detail pane. Same
+ * word stem and same colour in both, so the two read as one marker. */
+static const char* mod_channel_tag_short(int channel) {
+    switch (channel) {
+        case RECOMP_MOD_CHANNEL_EXPERIMENTAL: return ui_text("EXP");
+        case RECOMP_MOD_CHANNEL_DEVELOPER:    return ui_text("DEV");
+        default: return NULL;
+    }
+}
+
+static const char* mod_channel_tag(int channel) {
+    switch (channel) {
+        case RECOMP_MOD_CHANNEL_EXPERIMENTAL: return ui_text("EXPERIMENTAL");
+        case RECOMP_MOD_CHANNEL_DEVELOPER:    return ui_text("DEVELOPER");
+        default: return NULL;
+    }
+}
+
+static const char* mod_channel_blurb(int channel) {
+    switch (channel) {
+        case RECOMP_MOD_CHANNEL_EXPERIMENTAL:
+            return ui_text("Works, but has not been validated on this game. "
+                           "Expect rough edges, and turn it off if something "
+                           "looks wrong.");
+        case RECOMP_MOD_CHANNEL_DEVELOPER:
+            return ui_text("A work-in-progress instrument rather than a player "
+                           "feature. Released builds do not include it -- you "
+                           "are seeing it because this is a local build.");
+        default:
+            return NULL;
+    }
+}
+
+/* Amber is the theme's documented "unverified / caution" colour, which is
+ * exactly what experimental means. Developer is not a caution, it is a
+ * category, so it takes the secondary accent instead. */
+static LngColor mod_channel_color(int channel, const LauncherTheme& th) {
+    return channel == RECOMP_MOD_CHANNEL_DEVELOPER ? th.accent2 : th.warn;
+}
+
 static bool mod_feature_text_matches(const char* search,
                                      const RecompLauncherCModFeature& feature) {
     if (!search || !search[0]) return true;
@@ -6527,6 +6735,9 @@ static bool mod_feature_text_matches(const char* search,
         feature.id + " " + feature.group + " " + feature.author + " " +
         feature.description + " " + feature.package_name + " " +
         feature.package_id + " " + feature.status;
+    /* Searching "experimental" should find the experimental features. */
+    if (const char* channel_tag = mod_channel_tag(feature.channel))
+        haystack += std::string(" ") + channel_tag;
     std::transform(needle.begin(), needle.end(), needle.begin(),
         [](unsigned char c) { return (char)std::tolower(c); });
     std::transform(haystack.begin(), haystack.end(), haystack.begin(),
@@ -7096,6 +7307,50 @@ static bool set_all_mod_features(LauncherModel* m, bool enabled) {
     return true;
 }
 
+/* Packages that never loaded, at the top of the page.
+ *
+ * A package whose manifest will not parse has no row in the list below -- it
+ * has no features, because it has no manifest -- so if this is not drawn the
+ * only symptom is a mod that is silently absent. That was the whole defect:
+ * an author's typo produced a mod that did not exist, with nothing anywhere
+ * saying why. It goes above the list rather than in the detail pane because
+ * there is no row to select to reach it. */
+static void draw_mod_catalog_diagnostics(LauncherModel* m,
+                                         const LauncherTheme& th) {
+    const auto* mods = m ? m->mods : nullptr;
+    if (!mods || !mods->catalog_diagnostic_count ||
+        !mods->catalog_diagnostic_get) {
+        return;
+    }
+    const int count = mods->catalog_diagnostic_count(mods->ctx);
+    if (count <= 0) return;
+
+    char heading[128];
+    std::snprintf(heading, sizeof(heading),
+                  count == 1 ? ui_text("%d mod package could not be loaded")
+                             : ui_text("%d mod packages could not be loaded"),
+                  count);
+    if (ImGui::CollapsingHeader(heading, ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::TextColored(
+            col(th.text_muted), "%s",
+            ui_text("These are not installed. Fix the manifest and restart, "
+                    "or run: psxmod validate <path>"));
+        for (int index = 0; index < count; ++index) {
+            RecompLauncherCModDiagnostic diagnostic{};
+            if (!mods->catalog_diagnostic_get(mods->ctx, index, &diagnostic))
+                continue;
+            ImGui::PushID(index);
+            ImGui::TextColored(col(th.warn), "%s", diagnostic.message);
+            if (diagnostic.resource[0])
+                ImGui::TextWrapped("%s", diagnostic.resource);
+            ImGui::PopID();
+        }
+        ImGui::Spacing();
+    }
+    ImGui::Separator();
+    ImGui::Spacing();
+}
+
 static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
     const auto* mods = m ? m->mods : nullptr;
     if (!mods || !mods->feature_count || !mods->feature_get ||
@@ -7220,6 +7475,17 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                             ImGui::SetTooltip("%s", feature.status);
                         ImGui::SameLine();
                     }
+                    if (const char* channel_tag =
+                            mod_channel_tag_short(feature.channel)) {
+                        ImGui::TextColored(
+                            col(mod_channel_color(feature.channel, th)), "%s",
+                            channel_tag);
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("%s\n%s",
+                                              mod_channel_tag(feature.channel),
+                                              mod_channel_blurb(feature.channel));
+                        ImGui::SameLine();
+                    }
 
                     char label[320];
                     std::snprintf(label, sizeof(label), "%s\n%s%s%s",
@@ -7256,6 +7522,11 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
         if (feature_count > 0 &&
             mods->feature_get(mods->ctx, m->mod_selected, &feature)) {
             ImGui::TextColored(col(th.accent2), "%s", feature.name);
+            if (const char* channel_tag = mod_channel_tag(feature.channel)) {
+                ImGui::SameLine();
+                ImGui::TextColored(col(mod_channel_color(feature.channel, th)),
+                                   "%s", channel_tag);
+            }
             if (feature.group[0]) {
                 ImGui::SameLine();
                 ImGui::TextColored(col(th.text_muted), "%s", feature.group);
@@ -7276,6 +7547,14 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                 ImGui::TextLinkOpenURL(
                     feature.source_name[0] ? feature.source_name : ui_text("Project page"),
                     feature.source_url);
+            }
+            if (const char* channel_blurb = mod_channel_blurb(feature.channel)) {
+                ImGui::PushStyleColor(
+                    ImGuiCol_Text,
+                    col(mod_channel_color(feature.channel, th)));
+                ImGui::TextWrapped("%s", channel_blurb);
+                ImGui::PopStyleColor();
+                ImGui::Spacing();
             }
             if (feature.description[0])
                 ImGui::TextWrapped("%s", feature.description);
@@ -7472,6 +7751,11 @@ void draw_mods(LauncherModel* m, const LauncherTheme& th) {
         if (!mods) return;
         ImGui::Dummy(ImVec2(0, px(8)));
     }
+    /* Above the Features/Packages switch: a package that failed to parse is
+     * missing from BOTH views, so reporting it inside either one would leave
+     * the other silent. */
+    draw_mod_catalog_diagnostics(m, th);
+
     const bool feature_provider =
         mods->feature_count && mods->feature_get &&
         mods->feature_option_get && mods->feature_enable &&
@@ -8179,7 +8463,26 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
     const SetupPlatKind plat = setup_platform_kind(m->platform);
     const bool media_confirm = launcher_model_setup_media_confirm_only(m);
 
-    if (media_confirm) {
+    /* A retail BIOS was staged in section 1 that this binary has no backend
+     * for: the wizard stays up (disc rows and all) and its primary button
+     * becomes Generate & rebuild. */
+    const bool bios_regen = launcher_model_setup_needs_bios_regen(m);
+    /* The dedicated "Generate from disc" section below is drawn on a full
+     * first run only. When it is there it already carries a live Generate &
+     * rebuild button, so the footer must not grow a second one. */
+    const bool prep_section_shown =
+        !media_confirm && (m->prepare_disc_cb || m->prepare_with_progress_cb);
+
+    if (bios_regen) {
+        ImGui::TextColored(col(th.accent), "Rebuild required for this BIOS");
+        ImGui::PushTextWrapPos(wrap_x);
+        ImGui::TextColored(col(th.text_muted),
+            "%s was built against a different BIOS. Keep your selection below "
+            "and choose Generate & rebuild to compile this one in (you need a "
+            "disc image for that), or switch back to OpenBIOS to play now.",
+            game);
+        ImGui::PopTextWrapPos();
+    } else if (media_confirm) {
         ImGui::TextColored(col(th.accent),
                            m->has_bios ? "Confirm BIOS and disc"
                                        : "Confirm disc");
@@ -8293,8 +8596,12 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
         }
         ImGui::PopStyleVar();
         if (m->setup_bios_detail[0]) {
+            /* "not compiled into this build" is the reason the footer button
+             * changed — it must not read as a muted aside. */
+            const bool detail_warn =
+                m->setup_bios_warn || m->setup_bios_needs_regen;
             ImGui::PushTextWrapPos(wrap_x);
-            ImGui::TextColored(col(m->setup_bios_warn ? th.warn : th.text_muted),
+            ImGui::TextColored(col(detail_warn ? th.warn : th.text_muted),
                                "%s", m->setup_bios_detail);
             ImGui::PopTextWrapPos();
         }
@@ -8514,7 +8821,26 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
         }
         ImGui::SameLine();
     }
-    if (!m->prepare_required_before_continue) {
+    if (bios_regen && !prep_section_shown) {
+        /* The staged BIOS has no linked backend, so Confirm/Continue could
+         * never succeed. Same button, same place — it just does the thing the
+         * player was told they need. */
+        const char* blocker = launcher_model_setup_bios_regen_blocker(m);
+        if (blocker) ImGui::BeginDisabled();
+        if (ImGui::Button("Generate & rebuild", ImVec2(px(220), px(34))))
+            launcher_model_setup_start_bios_regen(m);
+        if (blocker) {
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", blocker);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Use OpenBIOS", ImVec2(px(130), px(34))))
+            launcher_model_request_bios_path(m, "");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Play now with the bundled OpenBIOS (no rebuild).");
+        ImGui::SameLine();
+    } else if (!m->prepare_required_before_continue) {
         const bool ready = launcher_model_can_finish_setup(m);
         const char* continue_lbl =
             media_confirm
@@ -8532,6 +8858,9 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
                     ImGui::SetTooltip("Select a %s first", noun);
                 else if (m->setup_preparing)
                     ImGui::SetTooltip("Wait for the current job to finish");
+                else if (m->has_bios && m->setup_bios_needs_regen)
+                    ImGui::SetTooltip("Generate & rebuild with this BIOS "
+                                      "first, or switch to OpenBIOS");
                 else if (m->has_bios && !m->setup_bios_ok)
                     ImGui::SetTooltip("BIOS check required");
                 else if (m->netplay_supported &&
@@ -9194,12 +9523,17 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
             if (btn >= 1 && btn <= 5) {
                 launcher_binds_set_button_slot(m, m->cfg_player + 1, m->capture_btn,
                                                m->capture_slot, 512 + btn);
-                launcher_model_cancel_capture(m);
+                if (m->map_all_active) launcher_model_map_all_advance(m);
+                else                   launcher_model_cancel_capture(m);
             }
             return true;
         }
     }
     if (ev.type != SDL_EVENT_KEY_DOWN) return true;   // swallow non-key input while capturing
+    // A held key auto-repeats. Harmless for a single rebind (it commits the
+    // same scancode twice) but during a keyboard Map All each repeat would
+    // advance a step, racing 24 buttons past on one keypress.
+    if (m->capturing && m->map_all_active && LNG_EVKEYREPEAT(ev)) return true;
     if (m->capturing) {
         // N64's input.cfg keeps two alternate binds per input, so a keyboard
         // capture there must honour capture_slot via the slot-aware field API.
@@ -9216,7 +9550,8 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
                                      RUI_N64_FIELD_KEY, (int)LNG_EVSCAN(ev));
         else
             launcher_binds_set_button(m, m->cfg_player + 1, m->capture_btn, (int)LNG_EVSCAN(ev));
-        launcher_model_cancel_capture(m);
+        if (m->map_all_active) launcher_model_map_all_advance(m);
+        else                   launcher_model_cancel_capture(m);
         return true;
     }
     // hotkey capture: wait past a bare modifier press for the real key
