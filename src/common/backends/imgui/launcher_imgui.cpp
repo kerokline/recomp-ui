@@ -3551,8 +3551,9 @@ void draw_controller_assist_shortcuts(LauncherModel* m,
                            : "(button chords supported)");
     if (ImGui::BeginTable("controller_assist_binds", 2,
                           ImGuiTableFlags_SizingStretchSame)) {
-        for (int action = 0;
-             action < m->assist_binding_count && action < 2; ++action) {
+        /* Every host shortcut the runtime advertises (two-column grid, so a
+         * third row like Fast-forward wraps below the first pair). */
+        for (int action = 0; action < m->assist_binding_count; ++action) {
             ImGui::TableNextColumn();
             ImGui::PushID(action);
             ImGui::AlignTextToFramePadding();
