@@ -51,7 +51,7 @@ static const char* kHotkeyNames[LNG_HK_COUNT] = {
     "Window bigger", "Window smaller", "Volume up", "Volume down",
     "FPS readout", "Toggle renderer",
     "Solar level up", "Solar level down", "Resume live solar",
-    "Rewind", "Save states menu"
+    "Rewind", "Save states menu", "Fast-forward toggle"
 };
 static const char* kViewNames[7] = {
     "Dashboard", "Settings", "Controller", "Netplay", "Mods",
