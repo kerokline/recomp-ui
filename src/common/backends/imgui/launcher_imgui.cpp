@@ -3491,6 +3491,42 @@ void settings_pad_label(int binding, char* out, size_t capacity) {
     snprintf(out, capacity, "%s", text);
 }
 
+/* PSX's runtime matches a host shortcut bound to ONE button or ONE trigger
+ * direction only while Select is also held (hotkey_pad_binding_down): the
+ * implicit chord keeps a lone face button from firing Rewind mid-game. A
+ * two-button capture is stored as an explicit chord and replaces that
+ * implicit Select. Show the requirement in the label so a player who binds
+ * "righttrigger+" is not left pressing R2 alone and seeing nothing. */
+static bool assist_pad_bind_implies_select(const LauncherModel* m, int binding) {
+    const SystemProfile* prof = m ? (const SystemProfile*)m->profile : nullptr;
+    const bool psx = prof && prof->id && std::strcmp(prof->id, "psx") == 0;
+    return psx && (RECOMP_LAUNCHER_PAD_IS_BUTTON(binding) ||
+                   RECOMP_LAUNCHER_PAD_IS_AXIS(binding));
+}
+
+static void assist_pad_label(const LauncherModel* m, int binding,
+                             char* out, size_t capacity) {
+    char text[96];
+    settings_pad_label(binding, text, sizeof text);
+    if (assist_pad_bind_implies_select(m, binding))
+        snprintf(out, capacity, "select + %s", text);
+    else
+        snprintf(out, capacity, "%s", text);
+}
+
+static void draw_assist_pad_chord_hint(const LauncherModel* m,
+                                       const LauncherTheme& th) {
+    if (!m) return;
+    for (int action = 0; action < m->assist_binding_count; ++action) {
+        if (assist_pad_bind_implies_select(m, m->s.assist_pad_bind[action])) {
+            ImGui::TextColored(col(th.text_muted),
+                "Single-button shortcuts fire with Select held; capture two"
+                " buttons together for a chord without Select.");
+            return;
+        }
+    }
+}
+
 void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
                                 const char* table_id, int action_limit,
                                 bool show_reset) {
@@ -3533,8 +3569,8 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
             ImGui::TableSetColumnIndex(2);
             bool capture_pad = m->capturing && m->capture_assist &&
                                m->capture_pad && m->capture_btn == action;
-            char pad[48];
-            settings_pad_label(m->s.assist_pad_bind[action], pad, sizeof pad);
+            char pad[112];
+            assist_pad_label(m, m->s.assist_pad_bind[action], pad, sizeof pad);
             if (ImGui::Button(
                     capture_pad ? "[ press a button... ]" : pad,
                     ImVec2(px(170), 0)))
@@ -3543,6 +3579,7 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
         }
         ImGui::EndTable();
     }
+    draw_assist_pad_chord_hint(m, th);
     if (show_reset && ImGui::Button(m->has_assist_tools
                                         ? "Reset Assist Controls"
                                         : "Reset Host Shortcuts"))
@@ -3588,8 +3625,8 @@ void draw_controller_assist_shortcuts(LauncherModel* m,
             ImGui::TableSetColumnIndex(2);
             bool capture_pad = m->capturing && m->capture_assist &&
                                m->capture_pad && m->capture_btn == action;
-            char pad[48];
-            settings_pad_label(m->s.assist_pad_bind[action], pad, sizeof pad);
+            char pad[112];
+            assist_pad_label(m, m->s.assist_pad_bind[action], pad, sizeof pad);
             if (ImGui::Button(capture_pad ? "[ button... ]" : pad,
                               ImVec2(-FLT_MIN, 0)))
                 launcher_model_begin_assist_capture(m, action, true);
@@ -3597,6 +3634,7 @@ void draw_controller_assist_shortcuts(LauncherModel* m,
         }
         ImGui::EndTable();
     }
+    draw_assist_pad_chord_hint(m, th);
     if (m->capturing && m->capture_assist)
         ImGui::TextColored(col(th.warn), "Listening... (Esc cancels)");
 }

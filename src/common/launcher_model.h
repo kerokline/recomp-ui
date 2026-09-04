@@ -98,6 +98,7 @@ typedef enum {
     LNG_HK_SOLAR_BRIGHTER, LNG_HK_SOLAR_DIMMER, LNG_HK_SOLAR_LIVE,
     LNG_HK_REWIND, /* PSX local rewind filmstrip → [KeyMap] Rewind */
     LNG_HK_SAVE_STATE_MENU, /* PSX save-state slot menu → [KeyMap] SaveStateMenu */
+    LNG_HK_TURBO_TOGGLE, /* PSX press-to-latch fast-forward → [KeyMap] TurboToggle */
     LNG_HK_COUNT
 } LngHotkey;
 
