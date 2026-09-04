@@ -3610,6 +3610,8 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
         ImGui::EndTable();
     }
     draw_assist_pad_chord_hint(m, th);
+    if (m->capturing && m->capture_assist)
+        ImGui::TextColored(col(th.text_muted), "Backspace clears the binding.");
     if (show_reset && ImGui::Button(m->has_assist_tools
                                         ? "Reset Assist Controls"
                                         : "Reset Host Shortcuts"))
@@ -3670,7 +3672,8 @@ void draw_controller_assist_shortcuts(LauncherModel* m,
     }
     draw_assist_pad_chord_hint(m, th);
     if (m->capturing && m->capture_assist)
-        ImGui::TextColored(col(th.warn), "Listening... (Esc cancels)");
+        ImGui::TextColored(col(th.warn),
+                           "Listening... (Esc cancels, Backspace clears)");
 }
 
 void draw_assist_tools(LauncherModel* m, const LauncherTheme& th) {
@@ -9382,6 +9385,13 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
     // the player's selected Input source device.
     if (m->capturing && m->capture_pad) {
         if (m->settings_bindings && m->capture_assist) {
+            // Backspace while listening clears the shortcut (0 = unbound);
+            // there is no other way to remove a host shortcut from the UI.
+            if (ev.type == SDL_EVENT_KEY_DOWN && LNG_EVKEY(ev) == SDLK_BACKSPACE) {
+                launcher_model_set_captured_pad(m, 0);
+                launcher_model_cancel_capture(m);
+                return true;
+            }
             if (ev.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
                 const int button = (int)LNG_EVGBTN(ev);
                 uint32_t mask = launcher_input_gamepad_button_mask(
@@ -9593,7 +9603,8 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
         // (capture_slot is always 0 for them).
         const SystemProfile* prof = (const SystemProfile*)m->profile;
         if (m->settings_bindings && m->capture_assist)
-            launcher_model_set_captured_key(m, (int)LNG_EVSCAN(ev));
+            launcher_model_set_captured_key(
+                m, LNG_EVKEY(ev) == SDLK_BACKSPACE ? 0 : (int)LNG_EVSCAN(ev));
         else if (prof && prof->controller.binds_per_input >= 2 && prof->id && !strcmp(prof->id, "psx"))
             launcher_binds_set_button_slot(m, m->cfg_player + 1, m->capture_btn,
                                            m->capture_slot, (int)LNG_EVSCAN(ev));
@@ -9608,7 +9619,12 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
     }
     // hotkey capture: wait past a bare modifier press for the real key
     if (is_modifier_scancode((SDL_Scancode)LNG_EVSCAN(ev))) return true;
-    launcher_binds_set_hotkey(m, m->capture_hk, (int)LNG_EVKEY(ev), (int)LNG_EVMOD(ev));
+    // Backspace unbinds: launcher_binds_set_hotkey writes "None", which the
+    // PSX runtime honours as an explicit unbind (no default fallback).
+    if (LNG_EVKEY(ev) == SDLK_BACKSPACE)
+        launcher_binds_set_hotkey(m, m->capture_hk, 0, 0);
+    else
+        launcher_binds_set_hotkey(m, m->capture_hk, (int)LNG_EVKEY(ev), (int)LNG_EVMOD(ev));
     launcher_model_cancel_hk_capture(m);
     return true;
 }
