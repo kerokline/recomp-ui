@@ -3692,8 +3692,8 @@ void draw_controller_assist_shortcuts(LauncherModel* m,
                                  : settings_key_label(m->s.assist_key_bind[action]));
             if (ImGui::Button(key_lbl, ImVec2(-FLT_MIN, 0)))
                 launcher_model_begin_assist_capture(m, action, false);
-            ImGui::TableSetColumnIndex(2);
             if (pad_col) {
+                ImGui::TableSetColumnIndex(2);
                 bool capture_pad = m->capturing && m->capture_assist &&
                                    m->capture_pad && m->capture_btn == action;
                 char pad[112];
