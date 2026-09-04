@@ -3586,19 +3586,24 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
             ImGui::TableSetColumnIndex(1);
             bool capture_key = m->capturing && m->capture_assist &&
                                !m->capture_pad && m->capture_btn == action;
-            if (ImGui::Button(
-                    capture_key ? "[ press a key... ]" :
-                        settings_key_label(m->s.assist_key_bind[action]),
-                    ImVec2(px(170), 0)))
+            /* "##key" / "##pad": both columns can read "(unbound)" at once
+             * (a freshly added shortcut), which would give the two buttons
+             * the same ImGui ID inside this row's PushID scope. */
+            char key_lbl[96];
+            snprintf(key_lbl, sizeof key_lbl, "%s##key",
+                     capture_key ? "[ press a key... ]"
+                                 : settings_key_label(m->s.assist_key_bind[action]));
+            if (ImGui::Button(key_lbl, ImVec2(px(170), 0)))
                 launcher_model_begin_assist_capture(m, action, false);
             ImGui::TableSetColumnIndex(2);
             bool capture_pad = m->capturing && m->capture_assist &&
                                m->capture_pad && m->capture_btn == action;
             char pad[112];
             assist_pad_label(m, m->s.assist_pad_bind[action], pad, sizeof pad);
-            if (ImGui::Button(
-                    capture_pad ? "[ press a button... ]" : pad,
-                    ImVec2(px(170), 0)))
+            char pad_lbl[128];
+            snprintf(pad_lbl, sizeof pad_lbl, "%s##pad",
+                     capture_pad ? "[ press a button... ]" : pad);
+            if (ImGui::Button(pad_lbl, ImVec2(px(170), 0)))
                 launcher_model_begin_assist_capture(m, action, true);
             ImGui::PopID();
         }
@@ -3642,18 +3647,22 @@ void draw_controller_assist_shortcuts(LauncherModel* m,
             ImGui::TableSetColumnIndex(1);
             bool capture_key = m->capturing && m->capture_assist &&
                                !m->capture_pad && m->capture_btn == action;
-            if (ImGui::Button(
-                    capture_key ? "[ key... ]" :
-                        settings_key_label(m->s.assist_key_bind[action]),
-                    ImVec2(-FLT_MIN, 0)))
+            /* "##key" / "##pad": see draw_assist_binding_editor. */
+            char key_lbl[96];
+            snprintf(key_lbl, sizeof key_lbl, "%s##key",
+                     capture_key ? "[ key... ]"
+                                 : settings_key_label(m->s.assist_key_bind[action]));
+            if (ImGui::Button(key_lbl, ImVec2(-FLT_MIN, 0)))
                 launcher_model_begin_assist_capture(m, action, false);
             ImGui::TableSetColumnIndex(2);
             bool capture_pad = m->capturing && m->capture_assist &&
                                m->capture_pad && m->capture_btn == action;
             char pad[112];
             assist_pad_label(m, m->s.assist_pad_bind[action], pad, sizeof pad);
-            if (ImGui::Button(capture_pad ? "[ button... ]" : pad,
-                              ImVec2(-FLT_MIN, 0)))
+            char pad_lbl[128];
+            snprintf(pad_lbl, sizeof pad_lbl, "%s##pad",
+                     capture_pad ? "[ button... ]" : pad);
+            if (ImGui::Button(pad_lbl, ImVec2(-FLT_MIN, 0)))
                 launcher_model_begin_assist_capture(m, action, true);
             ImGui::PopID();
         }
@@ -4120,6 +4129,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                                                spec.buttons[b].label);
                             ImGui::SameLine(label_col_w);
                             const bool cap = m->capturing && !m->capture_pad &&
+                                             !m->capture_assist &&
                                              m->capture_btn == b;
                             const bool cap_alt = cap && m->capture_slot == 1;
                             const char* lbl = m->binds[p][b];
@@ -4193,7 +4203,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                         s_kb_profile_saved_until = ImGui::GetTime() + 2.5;
                     }
                 }
-                if (m->capturing && !m->capture_pad) {
+                if (m->capturing && !m->capture_pad && !m->capture_assist) {
                     const char* label =
                         (m->capture_btn >= 0 &&
                          m->capture_btn < LNG_PSX_PAD_BUTTON_COUNT)
@@ -4231,6 +4241,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                                                spec.buttons[b].label);
                             ImGui::SameLine(label_col_w);
                             const bool cap = m->capturing && m->capture_pad &&
+                                             !m->capture_assist &&
                                              m->capture_btn == b;
                             const bool wait_rel = cap && m->map_all_wait_release;
                             const char* pl = m->pad_binds[p][b][0]
@@ -4278,7 +4289,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                         s_profile_saved_until = ImGui::GetTime() + 2.5;
                     }
                 }
-                if (m->capturing && m->capture_pad) {
+                if (m->capturing && m->capture_pad && !m->capture_assist) {
                     const char* label =
                         (m->capture_btn >= 0 &&
                          m->capture_btn < LNG_PSX_PAD_BUTTON_COUNT)
@@ -4379,7 +4390,8 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                     for (int slot = 0; slot < bpi; ++slot) {
                         if (slot) ImGui::SameLine(0, chip_gap);
                         ImGui::PushID(slot);
-                        const bool cap = m->capturing && m->capture_btn == b
+                        const bool cap = m->capturing && !m->capture_assist &&
+                                         m->capture_btn == b
                                                       && m->capture_slot == slot;
                         const char* txt = cap
                             ? (pad_cap ? "[ press a key / pad... ]" : "[ press a key... ]")
@@ -4392,7 +4404,8 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                     }
                 } else {
                     // KEY chip
-                    const bool cap_key = m->capturing && !m->capture_pad && m->capture_btn == b;
+                    const bool cap_key = m->capturing && !m->capture_pad &&
+                                         !m->capture_assist && m->capture_btn == b;
                     if (cap_key) ImGui::PushStyleColor(ImGuiCol_Button, col(th.accent));
                     const char* key_text = settings_player_binds
                         ? settings_key_label(m->s.player_key_bind[p][b])
@@ -4404,7 +4417,8 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                     if (has_pad) {
                         ImGui::SameLine(0, chip_gap);
                         ImGui::PushID("pad");
-                        const bool cap_pad = m->capturing && m->capture_pad && m->capture_btn == b;
+                        const bool cap_pad = m->capturing && m->capture_pad &&
+                                             !m->capture_assist && m->capture_btn == b;
                         char settings_pad[48];
                         settings_pad_label(m->s.player_pad_bind[p][b],
                                            settings_pad, sizeof settings_pad);
